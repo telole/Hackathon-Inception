@@ -33,6 +33,13 @@ class FakePostgrestFilterBuilder<T> extends Fake
   PostgrestFilterBuilder<T> eq(String column, Object value) => this;
 
   @override
+  PostgrestFilterBuilder<T> gt(String column, Object value) => this;
+
+  @override
+  PostgrestFilterBuilder<T> or(String filters, {String? referencedTable}) =>
+      this;
+
+  @override
   PostgrestFilterBuilder<T> filter(
           String column, String operator, Object? value) =>
       this;
@@ -45,9 +52,17 @@ class FakePostgrestFilterBuilder<T> extends Fake
       this;
 
   @override
+  PostgrestTransformBuilder<Map<String, dynamic>?> maybeSingle() {
+    final singleFuture = (_future as Future<List<Map<String, dynamic>>>)
+        .then((list) => list.isEmpty ? null : list.first);
+    return FakePostgrestTransformBuilder<Map<String, dynamic>?>(singleFuture);
+  }
+
+  @override
   PostgrestTransformBuilder<List<Map<String, dynamic>>> select(
           [String columns = '*']) =>
-      FakePostgrestTransformBuilder<List<Map<String, dynamic>>>(_future as dynamic);
+      FakePostgrestTransformBuilder<List<Map<String, dynamic>>>(
+          _future as dynamic);
 }
 
 class FakePostgrestTransformBuilder<T> extends Fake
@@ -172,6 +187,59 @@ void main() {
       ).called(1);
     });
 
+    test('createShipment calls create_shipment RPC with params', () async {
+      const allocId = 'alloc-1';
+      const volId = 'vol-1';
+      const shipmentId = 'ship-1';
+      final builder =
+          FakePostgrestFilterBuilder<dynamic>(Future.value(shipmentId));
+      when(
+        () => mockSupabase.rpc(
+          'create_shipment',
+          params: {
+            'p_allocation': allocId,
+            'p_volunteer': volId,
+          },
+        ),
+      ).thenAnswer((_) => builder);
+
+      final result = await logisticsService.createShipment(
+        allocationId: allocId,
+        volunteerId: volId,
+      );
+
+      expect(result, shipmentId);
+      verify(
+        () => mockSupabase.rpc(
+          'create_shipment',
+          params: {
+            'p_allocation': allocId,
+            'p_volunteer': volId,
+          },
+        ),
+      ).called(1);
+    });
+
+    test('dispatchShipment calls dispatch_shipment RPC', () async {
+      const shipmentId = 'ship-1';
+      final builder = FakePostgrestFilterBuilder<dynamic>(Future.value(null));
+      when(
+        () => mockSupabase.rpc(
+          'dispatch_shipment',
+          params: {'p_id': shipmentId},
+        ),
+      ).thenAnswer((_) => builder);
+
+      await logisticsService.dispatchShipment(shipmentId);
+
+      verify(
+        () => mockSupabase.rpc(
+          'dispatch_shipment',
+          params: {'p_id': shipmentId},
+        ),
+      ).called(1);
+    });
+
     test('confirmReceipt calls confirm_receipt RPC with counts', () async {
       const shipmentId = 'shipment-1';
       final builder = FakePostgrestFilterBuilder<dynamic>(Future.value(null));
@@ -235,7 +303,8 @@ void main() {
     test('fetchMyTasks queries logistics_tasks with filters and returns list',
         () async {
       final mockQuery = MockSupabaseQueryBuilder();
-      when(() => mockSupabase.from('logistics_tasks')).thenAnswer((_) => mockQuery);
+      when(() => mockSupabase.from('logistics_tasks'))
+          .thenAnswer((_) => mockQuery);
 
       final tasksData = [
         {
@@ -270,7 +339,8 @@ void main() {
     test('fetchDonationItemsForCuration returns donation items for donation',
         () async {
       final mockQuery = MockSupabaseQueryBuilder();
-      when(() => mockSupabase.from('donation_items')).thenAnswer((_) => mockQuery);
+      when(() => mockSupabase.from('donation_items'))
+          .thenAnswer((_) => mockQuery);
 
       final itemsData = [
         {
@@ -328,6 +398,102 @@ void main() {
       expect(batches.first.id, 'batch-1');
       expect(batches.first.category, 'celana');
       expect(batches.first.availableQty, 5);
+    });
+
+    test('fetchAllocations queries allocations and returns list', () async {
+      final mockQuery = MockSupabaseQueryBuilder();
+      when(() => mockSupabase.from('allocations'))
+          .thenAnswer((_) => mockQuery);
+
+      final allocData = [
+        {
+          'id': 'alloc-1',
+          'batch_id': 'batch-1',
+          'need_item_id': 'need-1',
+          'quantity': 10,
+          'status': 'reserved',
+          'request_key': 'key-1',
+          'created_by': 'user-1',
+          'created_at': '2026-10-31T09:00:00Z',
+          'category': 'kaos',
+          'size_code': 'L',
+        }
+      ];
+
+      final builder = FakePostgrestFilterBuilder<List<Map<String, dynamic>>>(
+        Future.value(allocData),
+      );
+      when(() => mockQuery.select(any())).thenAnswer((_) => builder);
+
+      final list = await logisticsService.fetchAllocations(status: 'reserved');
+
+      expect(list.length, 1);
+      expect(list.first.id, 'alloc-1');
+      expect(list.first.quantity, 10);
+    });
+
+    test('fetchShipments queries shipments and returns list with items',
+        () async {
+      final mockQuery = MockSupabaseQueryBuilder();
+      when(() => mockSupabase.from('shipments')).thenAnswer((_) => mockQuery);
+
+      final shipData = [
+        {
+          'id': 'ship-1',
+          'source_point_id': 'point-a',
+          'destination_point_id': 'point-b',
+          'status': 'ready',
+          'created_at': '2026-10-31T10:00:00Z',
+          'shipment_items': [],
+        }
+      ];
+
+      final builder = FakePostgrestFilterBuilder<List<Map<String, dynamic>>>(
+        Future.value(shipData),
+      );
+      when(() => mockQuery.select(any())).thenAnswer((_) => builder);
+
+      final list = await logisticsService.fetchShipments(status: 'ready');
+
+      expect(list.length, 1);
+      expect(list.first.id, 'ship-1');
+      expect(list.first.isReady, isTrue);
+    });
+
+    test('fetchMatchingBatches filters on variant and on_hand_qty > 0',
+        () async {
+      final mockQuery = MockSupabaseQueryBuilder();
+      when(() => mockSupabase.from('inventory_batches'))
+          .thenAnswer((_) => mockQuery);
+
+      final batchData = [
+        {
+          'id': 'batch-match-1',
+          'inspection_id': 'insp-1',
+          'point_id': 'point-1',
+          'category': 'kaos',
+          'size_code': 'M',
+          'age_group': 'anak',
+          'initial_qty': 12,
+          'on_hand_qty': 10,
+          'reserved_qty': 2,
+        }
+      ];
+
+      final builder = FakePostgrestFilterBuilder<List<Map<String, dynamic>>>(
+        Future.value(batchData),
+      );
+      when(() => mockQuery.select()).thenAnswer((_) => builder);
+
+      final matches = await logisticsService.fetchMatchingBatches(
+        category: 'kaos',
+        sizeCode: 'M',
+        ageGroup: 'anak',
+      );
+
+      expect(matches.length, 1);
+      expect(matches.first.id, 'batch-match-1');
+      expect(matches.first.availableQty, 8);
     });
   });
 }

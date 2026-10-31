@@ -1,8 +1,10 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../donation/models/donation.dart';
+import '../models/allocation.dart';
 import '../models/inspection.dart';
 import '../models/inventory_batch.dart';
 import '../models/logistics_task.dart';
+import '../models/shipment.dart';
 
 abstract class ILogisticsService {
   Future<void> respondTask({
@@ -44,6 +46,21 @@ abstract class ILogisticsService {
   Future<List<DonationItem>> fetchDonationItemsForCuration(String donationId);
   Future<List<Inspection>> fetchInspectionsForDonation(String donationId);
   Future<List<InventoryBatch>> fetchInventoryBatches({String? pointId});
+  Future<List<Allocation>> fetchAllocations({
+    String? needItemId,
+    String? batchId,
+    String? status,
+  });
+  Future<List<Shipment>> fetchShipments({
+    String? status,
+    String? pointId,
+  });
+  Future<Shipment?> fetchShipmentDetail(String shipmentId);
+  Future<List<InventoryBatch>> fetchMatchingBatches({
+    required String category,
+    required String sizeCode,
+    required String ageGroup,
+  });
 }
 
 class LogisticsService implements ILogisticsService {
@@ -232,6 +249,93 @@ class LogisticsService implements ILogisticsService {
       query = query.eq('point_id', pointId);
     }
     final res = await query.order('created_at', ascending: false);
+
+    final batches = <InventoryBatch>[];
+    for (final item in res) {
+      batches.add(InventoryBatch.fromJson(item));
+    }
+    return batches;
+  }
+
+  @override
+  Future<List<Allocation>> fetchAllocations({
+    String? needItemId,
+    String? batchId,
+    String? status,
+  }) async {
+    var query = _client.from('allocations').select(
+      'id, batch_id, need_item_id, quantity, status, request_key, created_by, created_at, '
+      'inventory_batches(category, size_code), need_items(needs(title, organizations(name)))',
+    );
+    if (needItemId != null) {
+      query = query.eq('need_item_id', needItemId);
+    }
+    if (batchId != null) {
+      query = query.eq('batch_id', batchId);
+    }
+    if (status != null) {
+      query = query.eq('status', status);
+    }
+
+    final res = await query.order('created_at', ascending: false);
+    final allocations = <Allocation>[];
+    for (final item in res) {
+      allocations.add(Allocation.fromJson(item));
+    }
+    return allocations;
+  }
+
+  @override
+  Future<List<Shipment>> fetchShipments({
+    String? status,
+    String? pointId,
+  }) async {
+    var query = _client.from('shipments').select(
+      'id, source_point_id, destination_point_id, assigned_to, status, received_by, '
+      'dispatched_at, received_at, created_at, '
+      'shipment_items(*)',
+    );
+    if (status != null) {
+      query = query.eq('status', status);
+    }
+    final res = await query.order('created_at', ascending: false);
+    final shipments = <Shipment>[];
+    for (final item in res) {
+      shipments.add(Shipment.fromJson(item));
+    }
+    return shipments;
+  }
+
+  @override
+  Future<Shipment?> fetchShipmentDetail(String shipmentId) async {
+    final res = await _client
+        .from('shipments')
+        .select(
+          'id, source_point_id, destination_point_id, assigned_to, status, received_by, '
+          'dispatched_at, received_at, created_at, '
+          'shipment_items(*)',
+        )
+        .eq('id', shipmentId)
+        .maybeSingle();
+
+    if (res == null) return null;
+    return Shipment.fromJson(res);
+  }
+
+  @override
+  Future<List<InventoryBatch>> fetchMatchingBatches({
+    required String category,
+    required String sizeCode,
+    required String ageGroup,
+  }) async {
+    final res = await _client
+        .from('inventory_batches')
+        .select()
+        .eq('category', category)
+        .eq('size_code', sizeCode)
+        .eq('age_group', ageGroup)
+        .gt('on_hand_qty', 0)
+        .order('created_at', ascending: false);
 
     final batches = <InventoryBatch>[];
     for (final item in res) {
