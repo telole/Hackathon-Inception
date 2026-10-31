@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/user_access.dart';
+import 'auth_recovery_service.dart';
 
 abstract class IAuthService {
   User? get currentUser;
@@ -53,6 +54,7 @@ class AuthService implements IAuthService {
     return await _client.auth.signUp(
       email: email,
       password: password,
+      emailRedirectTo: AuthRecoveryService.callback,
       data: data.isNotEmpty ? data : null,
     );
   }

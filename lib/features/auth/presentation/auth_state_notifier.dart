@@ -1,147 +1,147 @@
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../../core/models/user_access.dart';
 import '../services/auth_service.dart';
 
 class AuthStateNotifier extends ChangeNotifier {
   final IAuthService _authService;
-  StreamSubscription<AuthState>? _authSubscription;
-  bool _isDisposed = false;
-  int _authOperationGeneration = 0;
-
-  bool _isLoading = false;
+  StreamSubscription<AuthState>? _subscription;
+  bool _disposed = false;
+  int _command = 0, _accessRequest = 0, _sessionEpoch = 0;
+  bool _isLoading = false, _awaitingConfirmation = false;
   String? _errorMessage;
   User? _currentUser;
   UserAccess _currentAccess = UserAccess.empty;
-  bool _isAwaitingEmailConfirmation = false;
 
   AuthStateNotifier({IAuthService? authService})
-      : _authService = authService ?? AuthService() {
-    try {
-      _authSubscription = _authService.authStateChanges.listen(
-        _handleAuthStateChange,
-        onError: (e) {
-          _errorMessage = _parseError(e);
-          notifyListeners();
-        },
-      );
-    } catch (_) {
-      // In tests where authStateChanges stream is not stubbed
-    }
+    : _authService = authService ?? AuthService() {
+    _subscription = _authService.authStateChanges.listen(
+      _onAuth,
+      onError: (Object error) {
+        _errorMessage = _parseError(error);
+        notifyListeners();
+      },
+    );
   }
-
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   User? get currentUser => _currentUser;
   UserAccess get currentAccess => _currentAccess;
-  bool get isAuthenticated =>
-      _currentUser != null && !_isAwaitingEmailConfirmation;
-  bool get isAwaitingEmailConfirmation => _isAwaitingEmailConfirmation;
+  bool get isAuthenticated => _currentUser != null && !_awaitingConfirmation;
+  bool get isAwaitingEmailConfirmation => _awaitingConfirmation;
+  bool _same(User? a, User? b) =>
+      identical(a, b) || (a != null && b != null && a.id == b.id);
+  void _setUser(User? user) {
+    if (!_same(_currentUser, user)) {
+      ++_sessionEpoch;
+      ++_accessRequest;
+      _currentAccess = UserAccess.empty;
+    }
+    _currentUser = user;
+  }
+
+  Future<bool> _loadAccess(User user) async {
+    final epoch = _sessionEpoch;
+    final request = ++_accessRequest;
+    try {
+      final access = await _authService.fetchAccess();
+      if (_disposed || epoch != _sessionEpoch || !_same(user, _currentUser)) {
+        return false;
+      }
+      if (request == _accessRequest) _currentAccess = access;
+      return true;
+    } catch (e) {
+      if (_disposed || epoch != _sessionEpoch || request != _accessRequest) {
+        return false;
+      }
+      _currentAccess = UserAccess.empty;
+      rethrow;
+    }
+  }
+
+  void _onAuth(AuthState state) async {
+    if (_disposed) return;
+    if (state.event == AuthChangeEvent.signedOut) {
+      ++_command;
+      ++_sessionEpoch;
+      ++_accessRequest;
+      _setUser(null);
+      _currentAccess = UserAccess.empty;
+      _awaitingConfirmation = false;
+      _isLoading = false;
+      _errorMessage = null;
+      notifyListeners();
+      return;
+    }
+    final user = state.session?.user;
+    if (user == null) return;
+    _setUser(user);
+    _awaitingConfirmation = false;
+    final epoch = _sessionEpoch;
+    try {
+      await _loadAccess(user);
+    } catch (e) {
+      if (!_disposed && epoch == _sessionEpoch) _errorMessage = _parseError(e);
+    }
+    notifyListeners();
+  }
+
+  int _begin() {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+    return ++_command;
+  }
+
+  void _finish(int command) {
+    if (!_disposed && command == _command) {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
 
   void clearError() {
     _errorMessage = null;
     notifyListeners();
   }
 
-  void _handleAuthStateChange(AuthState state) async {
-    final opId = ++_authOperationGeneration;
-    final event = state.event;
-    final session = state.session;
-
-    if (event == AuthChangeEvent.signedIn ||
-        event == AuthChangeEvent.tokenRefreshed ||
-        event == AuthChangeEvent.userUpdated) {
-      if (session != null) {
-        _currentUser = session.user;
-        _isAwaitingEmailConfirmation = false;
-        try {
-          final access = await _authService.fetchAccess();
-          if (opId != _authOperationGeneration ||
-              _currentUser != session.user) {
-            return;
-          }
-          _currentAccess = access;
-        } catch (e) {
-          if (opId != _authOperationGeneration ||
-              _currentUser != session.user) {
-            return;
-          }
-          _errorMessage = _parseError(e);
-          _currentAccess = UserAccess.empty;
-        }
-      }
-    } else if (event == AuthChangeEvent.signedOut) {
-      _currentUser = null;
-      _currentAccess = UserAccess.empty;
-      _isAwaitingEmailConfirmation = false;
-      _errorMessage = null;
-    }
-    notifyListeners();
-  }
-
   Future<void> initialize() async {
-    final opId = ++_authOperationGeneration;
-    _isLoading = true;
-    _errorMessage = null;
-    notifyListeners();
-
+    final command = _begin();
     try {
       final user = _authService.currentUser;
-      _currentUser = user;
-      if (user != null) {
-        final access = await _authService.fetchAccess();
-        if (opId != _authOperationGeneration ||
-            _currentUser != user) {
-          return;
-        }
-        _currentAccess = access;
-      } else {
-        _currentAccess = UserAccess.empty;
-      }
+      _setUser(user);
+      if (user != null) await _loadAccess(user);
     } catch (e) {
-      if (opId != _authOperationGeneration) return;
-      _errorMessage = _parseError(e);
-      _currentAccess = UserAccess.empty;
+      if (command == _command) _errorMessage = _parseError(e);
     } finally {
-      if (opId == _authOperationGeneration) {
-        _isLoading = false;
-        notifyListeners();
-      }
+      _finish(command);
     }
   }
 
   Future<bool> signIn(String email, String password) async {
-    final opId = ++_authOperationGeneration;
-    _isLoading = true;
-    _errorMessage = null;
-    notifyListeners();
-
+    final command = _begin();
+    final epoch = _sessionEpoch;
     try {
       final response = await _authService.signIn(
         email: email.trim(),
         password: password,
       );
+      if (_disposed || command != _command) return false;
       final user = response.user ?? _authService.currentUser;
-      _currentUser = user;
-      _isAwaitingEmailConfirmation = false;
-      if (user != null) {
-        final access = await _authService.fetchAccess();
-        if (opId != _authOperationGeneration ||
-            _currentUser != user) {
-          return false;
-        }
-        _currentAccess = access;
-      }
-      _isLoading = false;
-      notifyListeners();
-      return true;
+      if (user == null) throw const AuthException('No active user returned');
+      // signedIn from this same login must not cancel its own command.
+      if (epoch != _sessionEpoch && !_same(user, _currentUser)) return false;
+      _setUser(user);
+      _awaitingConfirmation = false;
+      return await _loadAccess(user) && command == _command;
     } catch (e) {
-      if (opId != _authOperationGeneration) return false;
-      _errorMessage = _parseError(e);
-      _isLoading = false;
-      notifyListeners();
+      if (command == _command) _errorMessage = _parseError(e);
       return false;
+    } finally {
+      _finish(command);
     }
   }
 
@@ -151,12 +151,8 @@ class AuthStateNotifier extends ChangeNotifier {
     String? fullName,
     String? displayName,
   }) async {
-    final opId = ++_authOperationGeneration;
-    _isLoading = true;
-    _errorMessage = null;
-    _isAwaitingEmailConfirmation = false;
-    notifyListeners();
-
+    final command = _begin();
+    final epoch = _sessionEpoch;
     try {
       final response = await _authService.signUp(
         email: email.trim(),
@@ -164,95 +160,68 @@ class AuthStateNotifier extends ChangeNotifier {
         fullName: fullName,
         displayName: displayName,
       );
-
-      // Distinguish registered user awaiting email confirmation from active session
-      if (response.user != null && response.session == null) {
-        _currentUser = response.user;
-        _isAwaitingEmailConfirmation = true;
+      if (_disposed || command != _command) return false;
+      final user = response.user;
+      if (user == null) throw const AuthException('No registration result');
+      if (epoch != _sessionEpoch && !_same(user, _currentUser)) return false;
+      _setUser(user);
+      _awaitingConfirmation = response.session == null;
+      if (_awaitingConfirmation) {
         _currentAccess = UserAccess.empty;
-      } else {
-        final user = response.user ?? _authService.currentUser;
-        _currentUser = user;
-        _isAwaitingEmailConfirmation = false;
-        if (user != null) {
-          final access = await _authService.fetchAccess();
-          if (opId != _authOperationGeneration ||
-              _currentUser != user) {
-            return false;
-          }
-          _currentAccess = access;
-        }
+        return true;
       }
-      _isLoading = false;
-      notifyListeners();
-      return true;
+      return await _loadAccess(user) && command == _command;
     } catch (e) {
-      if (opId != _authOperationGeneration) return false;
-      _errorMessage = _parseError(e);
-      _isLoading = false;
-      notifyListeners();
+      if (command == _command) _errorMessage = _parseError(e);
       return false;
+    } finally {
+      _finish(command);
     }
   }
 
   Future<void> signOut() async {
-    ++_authOperationGeneration;
-    _isLoading = true;
-    notifyListeners();
-
+    final command = _begin();
+    ++_sessionEpoch;
+    ++_accessRequest;
+    _setUser(null);
+    _currentAccess = UserAccess.empty;
+    _awaitingConfirmation = false;
     try {
       await _authService.signOut();
+    } catch (e) {
+      if (command == _command) _errorMessage = _parseError(e);
+      rethrow;
     } finally {
-      _currentUser = null;
-      _currentAccess = UserAccess.empty;
-      _isAwaitingEmailConfirmation = false;
-      _errorMessage = null;
-      _isLoading = false;
-      notifyListeners();
+      _finish(command);
     }
   }
 
   Future<void> refreshAccess() async {
     final user = _currentUser;
-    if (user == null) return;
-    final opId = ++_authOperationGeneration;
+    if (user == null || _awaitingConfirmation) return;
+    final epoch = _sessionEpoch;
     try {
-      final access = await _authService.fetchAccess();
-      if (opId != _authOperationGeneration ||
-          _currentUser != user) {
-        return;
-      }
-      _currentAccess = access;
-      notifyListeners();
+      await _loadAccess(user);
     } catch (e) {
-      if (opId != _authOperationGeneration) return;
-      _errorMessage = _parseError(e);
-      notifyListeners();
+      if (epoch == _sessionEpoch) _errorMessage = _parseError(e);
     }
+    notifyListeners();
   }
 
   @override
   void dispose() {
-    _isDisposed = true;
-    _authSubscription?.cancel();
+    _disposed = true;
+    ++_command;
+    ++_sessionEpoch;
+    ++_accessRequest;
+    _subscription?.cancel();
     super.dispose();
   }
 
   @override
   void notifyListeners() {
-    if (!_isDisposed) {
-      super.notifyListeners();
-    }
+    if (!_disposed) super.notifyListeners();
   }
 
-  String _parseError(Object error) {
-    if (error is AuthException) {
-      return error.message;
-    }
-    final str = error.toString();
-    if (str.contains('42501') || str.contains('FORBIDDEN')) {
-      return 'Akses ditolak: Anda tidak memiliki izin untuk tindakan ini.';
-    }
-    return str;
-  }
+  String _parseError(Object e) => e is AuthException ? e.message : e.toString();
 }

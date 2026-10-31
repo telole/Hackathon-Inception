@@ -1,11 +1,14 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../models/need.dart';
+import '../../../core/models/page_request.dart';
 
 abstract class INeedsService {
   Future<List<Need>> fetchOpenNeeds({
     String? category,
     String? ageGroup,
     String? sizeCode,
+    PageRequest page = const PageRequest(),
   });
   Future<Need?> fetchNeedById(String id);
 }
@@ -14,22 +17,45 @@ class NeedsService implements INeedsService {
   final SupabaseClient _client;
 
   NeedsService({SupabaseClient? client})
-      : _client = client ?? Supabase.instance.client;
+    : _client = client ?? Supabase.instance.client;
 
   @override
   Future<List<Need>> fetchOpenNeeds({
     String? category,
     String? ageGroup,
     String? sizeCode,
+    PageRequest page = const PageRequest(),
   }) async {
     const query = '''
       id, organization_id, point_id, incident_id, title, description, deadline_at, status, created_at,
       organizations(name),
       collection_points(name),
-      need_items(id, need_id, category, size_code, age_group, requested_qty)
+      need_items!inner(id, need_id, category, size_code, age_group, requested_qty)
     ''';
 
-    final res = await _client.from('needs').select(query);
+    page.validate();
+    var request = _client
+        .from('needs')
+        .select(query)
+        .eq('status', 'open')
+        .gt('deadline_at', DateTime.now().toUtc().toIso8601String());
+    String literal(String value) => value
+        .replaceAll('\\', '\\\\')
+        .replaceAll('%', '\\%')
+        .replaceAll('_', '\\_');
+    if (category != null) {
+      request = request.ilike('need_items.category', literal(category));
+    }
+    if (ageGroup != null) {
+      request = request.ilike('need_items.age_group', literal(ageGroup));
+    }
+    if (sizeCode != null) {
+      request = request.ilike('need_items.size_code', literal(sizeCode));
+    }
+    final res = await request
+        .order('created_at', ascending: false)
+        .order('id')
+        .range(page.offset, page.end);
     final List<Need> needs = [];
     final now = DateTime.now();
     for (final item in res) {

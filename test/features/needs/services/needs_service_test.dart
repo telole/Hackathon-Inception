@@ -20,6 +20,14 @@ class FakePostgrestTransformBuilder<T> extends Fake
 
 class FakePostgrestFilterBuilder<T> extends Fake
     implements PostgrestFilterBuilder<T> {
+  @override
+  PostgrestFilterBuilder<T> ilike(String column, String pattern) => this;
+  @override
+  PostgrestFilterBuilder<T> gt(String column, Object value) => this;
+  @override
+  PostgrestFilterBuilder<T> range(int from, int to, {String? referencedTable}) => this;
+  @override
+  PostgrestFilterBuilder<T> order(String column, {bool ascending = false, bool nullsFirst = false, String? referencedTable}) => this;
   final Future<T> _future;
   FakePostgrestFilterBuilder(this._future);
 

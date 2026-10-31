@@ -21,6 +21,7 @@ void main() {
 
   setUp(() {
     mockAuthService = MockAuthService();
+    when(() => mockAuthService.authStateChanges).thenAnswer((_) => const Stream.empty());
     notifier = AuthStateNotifier(authService: mockAuthService);
   });
 

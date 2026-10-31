@@ -54,6 +54,7 @@ void main() {
         () => mockAuth.signUp(
           email: 'test@example.com',
           password: 'password123',
+          emailRedirectTo: 'com.resandang.resandang://auth-callback',
           data: {'display_name': 'Budi Santoso'},
         ),
       ).thenAnswer((_) async => mockResponse);
@@ -69,6 +70,7 @@ void main() {
         () => mockAuth.signUp(
           email: 'test@example.com',
           password: 'password123',
+          emailRedirectTo: 'com.resandang.resandang://auth-callback',
           data: {'display_name': 'Budi Santoso'},
         ),
       ).called(1);
@@ -80,6 +82,7 @@ void main() {
         () => mockAuth.signUp(
           email: 'test@example.com',
           password: 'password123',
+          emailRedirectTo: 'com.resandang.resandang://auth-callback',
           data: {'display_name': 'Budi Display'},
         ),
       ).thenAnswer((_) async => mockResponse);
@@ -96,6 +99,7 @@ void main() {
         () => mockAuth.signUp(
           email: 'test@example.com',
           password: 'password123',
+          emailRedirectTo: 'com.resandang.resandang://auth-callback',
           data: {'display_name': 'Budi Display'},
         ),
       ).called(1);
