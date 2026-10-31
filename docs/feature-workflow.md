@@ -188,6 +188,7 @@ lib/
     ├── needs/           # Kebutuhan pakaian bencana / posko
     ├── donation/        # Alur donasi pakaian, checklist, & timeline
     ├── logistics/       # Tugas kurasi relawan, alokasi & pengiriman
+    ├── disaster/        # Mode bencana, kebutuhan darurat, & pencocokan stok terkurasi
     └── collection_points/ # Titik posko / drop point
 ```
 Setiap folder di dalam `features/` mengikuti pembagian subfolder:
