@@ -8,6 +8,7 @@ class AuthStateNotifier extends ChangeNotifier {
   final IAuthService _authService;
   StreamSubscription<AuthState>? _authSubscription;
   bool _isDisposed = false;
+  int _authOperationGeneration = 0;
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -44,6 +45,7 @@ class AuthStateNotifier extends ChangeNotifier {
   }
 
   void _handleAuthStateChange(AuthState state) async {
+    final opId = ++_authOperationGeneration;
     final event = state.event;
     final session = state.session;
 
@@ -54,8 +56,17 @@ class AuthStateNotifier extends ChangeNotifier {
         _currentUser = session.user;
         _isAwaitingEmailConfirmation = false;
         try {
-          _currentAccess = await _authService.fetchAccess();
+          final access = await _authService.fetchAccess();
+          if (opId != _authOperationGeneration ||
+              _currentUser != session.user) {
+            return;
+          }
+          _currentAccess = access;
         } catch (e) {
+          if (opId != _authOperationGeneration ||
+              _currentUser != session.user) {
+            return;
+          }
           _errorMessage = _parseError(e);
           _currentAccess = UserAccess.empty;
         }
@@ -70,27 +81,38 @@ class AuthStateNotifier extends ChangeNotifier {
   }
 
   Future<void> initialize() async {
+    final opId = ++_authOperationGeneration;
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      _currentUser = _authService.currentUser;
-      if (_currentUser != null) {
-        _currentAccess = await _authService.fetchAccess();
+      final user = _authService.currentUser;
+      _currentUser = user;
+      if (user != null) {
+        final access = await _authService.fetchAccess();
+        if (opId != _authOperationGeneration ||
+            _currentUser != user) {
+          return;
+        }
+        _currentAccess = access;
       } else {
         _currentAccess = UserAccess.empty;
       }
     } catch (e) {
+      if (opId != _authOperationGeneration) return;
       _errorMessage = _parseError(e);
       _currentAccess = UserAccess.empty;
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (opId == _authOperationGeneration) {
+        _isLoading = false;
+        notifyListeners();
+      }
     }
   }
 
   Future<bool> signIn(String email, String password) async {
+    final opId = ++_authOperationGeneration;
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
@@ -100,13 +122,22 @@ class AuthStateNotifier extends ChangeNotifier {
         email: email.trim(),
         password: password,
       );
-      _currentUser = response.user ?? _authService.currentUser;
+      final user = response.user ?? _authService.currentUser;
+      _currentUser = user;
       _isAwaitingEmailConfirmation = false;
-      _currentAccess = await _authService.fetchAccess();
+      if (user != null) {
+        final access = await _authService.fetchAccess();
+        if (opId != _authOperationGeneration ||
+            _currentUser != user) {
+          return false;
+        }
+        _currentAccess = access;
+      }
       _isLoading = false;
       notifyListeners();
       return true;
     } catch (e) {
+      if (opId != _authOperationGeneration) return false;
       _errorMessage = _parseError(e);
       _isLoading = false;
       notifyListeners();
@@ -120,6 +151,7 @@ class AuthStateNotifier extends ChangeNotifier {
     String? fullName,
     String? displayName,
   }) async {
+    final opId = ++_authOperationGeneration;
     _isLoading = true;
     _errorMessage = null;
     _isAwaitingEmailConfirmation = false;
@@ -139,16 +171,23 @@ class AuthStateNotifier extends ChangeNotifier {
         _isAwaitingEmailConfirmation = true;
         _currentAccess = UserAccess.empty;
       } else {
-        _currentUser = response.user ?? _authService.currentUser;
+        final user = response.user ?? _authService.currentUser;
+        _currentUser = user;
         _isAwaitingEmailConfirmation = false;
-        if (_currentUser != null) {
-          _currentAccess = await _authService.fetchAccess();
+        if (user != null) {
+          final access = await _authService.fetchAccess();
+          if (opId != _authOperationGeneration ||
+              _currentUser != user) {
+            return false;
+          }
+          _currentAccess = access;
         }
       }
       _isLoading = false;
       notifyListeners();
       return true;
     } catch (e) {
+      if (opId != _authOperationGeneration) return false;
       _errorMessage = _parseError(e);
       _isLoading = false;
       notifyListeners();
@@ -157,6 +196,7 @@ class AuthStateNotifier extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    ++_authOperationGeneration;
     _isLoading = true;
     notifyListeners();
 
@@ -173,11 +213,19 @@ class AuthStateNotifier extends ChangeNotifier {
   }
 
   Future<void> refreshAccess() async {
-    if (_currentUser == null) return;
+    final user = _currentUser;
+    if (user == null) return;
+    final opId = ++_authOperationGeneration;
     try {
-      _currentAccess = await _authService.fetchAccess();
+      final access = await _authService.fetchAccess();
+      if (opId != _authOperationGeneration ||
+          _currentUser != user) {
+        return;
+      }
+      _currentAccess = access;
       notifyListeners();
     } catch (e) {
+      if (opId != _authOperationGeneration) return;
       _errorMessage = _parseError(e);
       notifyListeners();
     }

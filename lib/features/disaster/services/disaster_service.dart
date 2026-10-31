@@ -36,7 +36,7 @@ class DisasterService implements IDisasterService {
 
   @override
   Future<List<Incident>> fetchActiveIncidents({String? area}) async {
-    final nowIso = DateTime.now().toIso8601String();
+    final nowIso = DateTime.now().toUtc().toIso8601String();
     var query = _client.from('incidents').select(
       'id, organization_id, title, area, status, starts_at, ends_at, approved_by, '
       'organizations(name)',

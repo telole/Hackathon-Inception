@@ -57,6 +57,7 @@ class VolunteerTaskNotifier extends ChangeNotifier {
         if (match != null) {
           _selectedTask = match;
         } else {
+          ++_selectionRequestId;
           _selectedTask = null;
           _curationItems = [];
           _inspections = {};

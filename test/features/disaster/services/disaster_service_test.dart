@@ -15,7 +15,10 @@ class MockSupabaseQueryBuilder extends Mock implements SupabaseQueryBuilder {}
 class FakePostgrestFilterBuilder<T> extends Fake
     implements PostgrestFilterBuilder<T> {
   final Future<T> _future;
-  FakePostgrestFilterBuilder(this._future);
+  final void Function(String column, Object value)? onLte;
+  final void Function(String column, Object value)? onGt;
+
+  FakePostgrestFilterBuilder(this._future, {this.onLte, this.onGt});
 
   @override
   Future<R> then<R>(FutureOr<R> Function(T value) onValue,
@@ -37,10 +40,16 @@ class FakePostgrestFilterBuilder<T> extends Fake
   PostgrestFilterBuilder<T> eq(String column, Object value) => this;
 
   @override
-  PostgrestFilterBuilder<T> lte(String column, Object value) => this;
+  PostgrestFilterBuilder<T> lte(String column, Object value) {
+    onLte?.call(column, value);
+    return this;
+  }
 
   @override
-  PostgrestFilterBuilder<T> gt(String column, Object value) => this;
+  PostgrestFilterBuilder<T> gt(String column, Object value) {
+    onGt?.call(column, value);
+    return this;
+  }
 
   @override
   PostgrestFilterBuilder<T> not(
@@ -127,6 +136,33 @@ void main() {
       expect(list.first.id, 'incident-1');
       expect(list.first.title, 'Banjir Demak');
       expect(list.first.isActive, isTrue);
+    });
+
+    test('fetchActiveIncidents queries using UTC timestamps ending in Z',
+        () async {
+      final mockQuery = MockSupabaseQueryBuilder();
+      when(() => mockSupabase.from('incidents')).thenAnswer((_) => mockQuery);
+
+      String? lteVal;
+      String? gtVal;
+
+      final builder = FakePostgrestFilterBuilder<List<Map<String, dynamic>>>(
+        Future.value([]),
+        onLte: (col, val) {
+          if (col == 'starts_at') lteVal = val.toString();
+        },
+        onGt: (col, val) {
+          if (col == 'ends_at') gtVal = val.toString();
+        },
+      );
+      when(() => mockQuery.select(any())).thenAnswer((_) => builder);
+
+      await disasterService.fetchActiveIncidents();
+
+      expect(lteVal, isNotNull);
+      expect(lteVal!.endsWith('Z'), isTrue);
+      expect(gtVal, isNotNull);
+      expect(gtVal!.endsWith('Z'), isTrue);
     });
 
     test('requestDisasterDeclaration inserts incident row and returns id',

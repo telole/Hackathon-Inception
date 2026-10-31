@@ -301,5 +301,33 @@ void main() {
           )).called(1);
       expect(notifier.inspections.containsKey('item-1'), isTrue);
     });
+
+    test('loadTasks clearing task invalidates pending selectTask contact response', () async {
+      when(() => mockService.fetchMyTasks(
+            statuses: ['assigned', 'accepted', 'in_progress'],
+          )).thenAnswer((_) async => []);
+      when(() => mockService.fetchMyTasks(
+            statuses: ['completed', 'declined', 'cancelled', 'failed'],
+          )).thenAnswer((_) async => []);
+
+      final contactCompleter = Completer<Map<String, dynamic>?>();
+      when(() => mockService.fetchDonationItemsForCuration('donation-2'))
+          .thenAnswer((_) async => []);
+      when(() => mockService.fetchInspectionsForDonation('donation-2'))
+          .thenAnswer((_) async => []);
+      when(() => mockService.getDonationContact('donation-2'))
+          .thenAnswer((_) => contactCompleter.future);
+
+      final selectFuture = notifier.selectTask(sampleActiveTask);
+
+      await notifier.loadTasks();
+      expect(notifier.selectedTask, isNull);
+
+      contactCompleter.complete({'contact_name': 'Pak Budi'});
+      await selectFuture;
+
+      expect(notifier.selectedTask, isNull);
+      expect(notifier.donorContact, isNull);
+    });
   });
 }

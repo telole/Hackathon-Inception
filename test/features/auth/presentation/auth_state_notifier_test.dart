@@ -179,5 +179,40 @@ void main() {
       customNotifier.dispose();
       await streamController.close();
     });
+
+    test('guards against auth race condition where signedIn completes after signedOut', () async {
+      final streamController = StreamController<AuthState>();
+      when(() => mockAuthService.authStateChanges).thenAnswer((_) => streamController.stream);
+
+      final mockUser = MockUser();
+      when(() => mockUser.id).thenReturn('user-1');
+      final mockSession = MockSession();
+      when(() => mockSession.user).thenReturn(mockUser);
+
+      final fetchCompleter = Completer<UserAccess>();
+      when(() => mockAuthService.fetchAccess()).thenAnswer((_) => fetchCompleter.future);
+
+      final customNotifier = AuthStateNotifier(authService: mockAuthService);
+
+      // User signs in (slow network for fetchAccess)
+      streamController.add(AuthState(AuthChangeEvent.signedIn, mockSession));
+      await Future.delayed(Duration.zero);
+
+      // User immediately signs out
+      streamController.add(AuthState(AuthChangeEvent.signedOut, null));
+      await Future.delayed(Duration.zero);
+
+      // Now fetchAccess finishes late
+      fetchCompleter.complete(const UserAccess(roles: [AppRole.admin], ui: AppUiShell.admin));
+      await Future.delayed(Duration.zero);
+
+      // State must remain unauthenticated with empty roles, NOT overwritten by delayed admin role
+      expect(customNotifier.currentUser, isNull);
+      expect(customNotifier.isAuthenticated, isFalse);
+      expect(customNotifier.currentAccess.roles, isEmpty);
+
+      customNotifier.dispose();
+      await streamController.close();
+    });
   });
 }

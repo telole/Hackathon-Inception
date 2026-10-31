@@ -45,7 +45,7 @@ flowchart TD
 ## 3. Detail Tahapan Pengembangan
 
 ### Tahap 1: Telaah Kontrak Database & RPC
-- Periksa schema database, tabel, kolom, enum, RLS, serta parameter RPC pada [docs/database-and-rbac.md](docs/database-and-rbac.md).
+- Periksa schema database, tabel, kolom, enum, RLS, serta parameter RPC pada [database-and-rbac.md](database-and-rbac.md).
 - Pastikan memahami peran pengguna yang berwenang (misal: role `donatur`, `relawan`, `mitra`, atau `admin`).
 - Catat nama parameter RPC secara presisi (contoh: `p_id`, `p_status`).
 
