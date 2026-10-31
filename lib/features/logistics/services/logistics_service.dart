@@ -3,19 +3,16 @@ import '../../../core/errors/error_mapper.dart';
 import '../../../core/services/supabase_client_provider.dart';
 
 abstract class ILogisticsService {
-  /// Merespons tugas (accepted/declined/in_progress/completed/failed)
   Future<void> respondTask({
     required String taskId,
     required String status,
   });
 
-  /// Memajukan status donasi (advance_donation RPC)
   Future<void> advanceDonation({
     required String donationId,
     required String status,
   });
 
-  /// Mencatat hasil inspeksi fisik barang donasi
   Future<String?> recordInspection({
     required String itemId,
     required int passedQty,
@@ -23,7 +20,6 @@ abstract class ILogisticsService {
     String? reason,
   });
 
-  /// Mereservasi stok batch ke kebutuhan
   Future<String?> reserveAllocation({
     required String batchId,
     required String needItemId,
@@ -31,13 +27,11 @@ abstract class ILogisticsService {
     required String requestKey,
   });
 
-  /// Membuat shipment dari alokasi yang sudah reserved
   Future<String?> createShipment({
     required String allocationId,
     required String volunteerId,
   });
 
-  /// Menugaskan task logistik ke relawan
   Future<String> assignTask({
     required String donationId,
     required String pointId,
@@ -47,10 +41,8 @@ abstract class ILogisticsService {
     String? notes,
   });
 
-  /// Mendispatch shipment (mengurangi stok dari titik sumber)
   Future<void> dispatchShipment(String shipmentId);
 
-  /// Mengkonfirmasi penerimaan barang di tujuan
   Future<void> confirmReceipt({
     required String shipmentId,
     required int goodQty,
@@ -58,23 +50,19 @@ abstract class ILogisticsService {
     required int missingQty,
   });
 
-  /// Membatalkan alokasi yang sudah reserved
   Future<void> cancelAllocation({
     required String allocationId,
     String? reason,
   });
 
-  /// Mendapatkan daftar tugas relawan yang sedang login
   Future<List<Map<String, dynamic>>> listMyTasks({String? status});
 
-  /// Mendapatkan inventori titik tertentu
   Future<List<Map<String, dynamic>>> listInventory({
     required String pointId,
     String? category,
     String? sizeCode,
   });
 
-  /// Mendapatkan kandidat matching untuk donation item
   Future<List<Map<String, dynamic>>> findMatches({
     required String category,
     required String sizeCode,
@@ -82,13 +70,14 @@ abstract class ILogisticsService {
     int limit = 5,
   });
 
-  /// Memperbarui status referral daur ulang
   Future<void> updateRecyclingReferral({
     required String referralId,
     String? partnerId,
     String? status,
     String? evidence,
   });
+
+  Future<Map<String, dynamic>?> getDonationContact(String donationId);
 }
 
 class LogisticsService implements ILogisticsService {
@@ -329,6 +318,20 @@ class LogisticsService implements ILogisticsService {
         'p_evidence': evidence,
         'p_request_key': key,
       });
+    } catch (e, s) {
+      throw ErrorMapper.map(e, s);
+    }
+  }
+
+  @override
+  Future<Map<String, dynamic>?> getDonationContact(String donationId) async {
+    try {
+      final result = await _client.rpc(
+        'get_donation_contact',
+        params: {'p_id': donationId},
+      );
+      if (result == null) return null;
+      return Map<String, dynamic>.from(result as Map);
     } catch (e, s) {
       throw ErrorMapper.map(e, s);
     }

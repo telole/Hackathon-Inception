@@ -4,17 +4,14 @@ import '../../../core/models/app_role.dart';
 import '../../../core/services/supabase_client_provider.dart';
 
 abstract class IAdminService {
-  /// Memberi atau mencabut peran pengguna
   Future<void> setRole({
     required String userId,
     required AppRole role,
     required bool grant,
   });
 
-  /// Menandai notifikasi sebagai sudah dibaca
   Future<void> markNotificationRead(String notificationId);
 
-  /// Menyetujui atau menolak verifikasi organisasi/relawan
   Future<void> approveVerification({
     required String targetType,
     required String targetId,
@@ -22,19 +19,16 @@ abstract class IAdminService {
     String? reason,
   });
 
-  /// Mengaktifkan insiden bencana
   Future<void> activateIncident({
     required String incidentId,
     String? reason,
   });
 
-  /// Menutup insiden bencana
   Future<void> closeIncident({
     required String incidentId,
     String? reason,
   });
 
-  /// Menyelesaikan sengketa pengiriman
   Future<void> resolveDispute({
     required String disputeId,
     required int acceptedLateQty,
@@ -42,10 +36,8 @@ abstract class IAdminService {
     required String reason,
   });
 
-  /// Mendapatkan ringkasan dampak donatur
   Future<Map<String, dynamic>?> getMyImpact();
 
-  /// Mendapatkan notifikasi pengguna
   Future<List<Map<String, dynamic>>> fetchNotifications();
 }
 

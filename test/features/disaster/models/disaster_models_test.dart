@@ -1,0 +1,92 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:resandang/features/disaster/models/emergency_stock_match.dart';
+import 'package:resandang/features/disaster/models/incident.dart';
+
+void main() {
+  group('Disaster Models', () {
+    test('Incident parses json correctly and calculates running status', () {
+      final json = {
+        'id': 'incident-1',
+        'organization_id': 'org-posko-1',
+        'title': 'Banjir Bandang Demak Posko 1',
+        'area': 'Jawa Tengah',
+        'status': 'active',
+        'starts_at': '2026-10-31T00:00:00Z',
+        'ends_at': '2026-11-15T23:59:59Z',
+        'approved_by': 'admin-uuid-1',
+        'organizations': {'name': 'BPBD Jawa Tengah'},
+      };
+
+      final incident = Incident.fromJson(json);
+
+      expect(incident.id, 'incident-1');
+      expect(incident.organizationId, 'org-posko-1');
+      expect(incident.title, 'Banjir Bandang Demak Posko 1');
+      expect(incident.area, 'Jawa Tengah');
+      expect(incident.status, 'active');
+      expect(incident.approvedBy, 'admin-uuid-1');
+      expect(incident.organizationName, 'BPBD Jawa Tengah');
+
+      expect(incident.isActive, isTrue);
+      expect(incident.isRequested, isFalse);
+      expect(incident.isClosed, isFalse);
+
+      final now = DateTime.parse('2026-11-01T12:00:00Z');
+      expect(incident.isRunningAt(now), isTrue);
+
+      final past = DateTime.parse('2026-10-30T00:00:00Z');
+      expect(incident.isRunningAt(past), isFalse);
+
+      final outJson = incident.toJson();
+      expect(outJson['id'], 'incident-1');
+      expect(outJson['title'], 'Banjir Bandang Demak Posko 1');
+      expect(outJson['organization_name'], 'BPBD Jawa Tengah');
+    });
+
+    test('EmergencyStockMatch parses json and calculates full match', () {
+      final json = {
+        'batch_id': 'batch-1',
+        'point_id': 'point-a',
+        'point_name': 'Posko Siaga Kudus',
+        'point_address': 'Jl. Raya Kudus No. 5',
+        'category': 'kaos',
+        'size_code': 'M',
+        'age_group': 'anak',
+        'available_qty': 15,
+        'matched_qty': 10,
+        'requested_qty': 10,
+      };
+
+      final match = EmergencyStockMatch.fromJson(json);
+
+      expect(match.batchId, 'batch-1');
+      expect(match.pointId, 'point-a');
+      expect(match.pointName, 'Posko Siaga Kudus');
+      expect(match.pointAddress, 'Jl. Raya Kudus No. 5');
+      expect(match.category, 'kaos');
+      expect(match.availableQty, 15);
+      expect(match.matchedQty, 10);
+      expect(match.requestedQty, 10);
+      expect(match.isFullMatch, isTrue);
+
+      // Partial match case: requested 10, but batch only provides 5
+      const partialMatch = EmergencyStockMatch(
+        batchId: 'batch-2',
+        pointId: 'point-b',
+        pointName: 'Posko 2',
+        category: 'kaos',
+        sizeCode: 'M',
+        ageGroup: 'anak',
+        requestedQty: 10,
+        availableQty: 5,
+        matchedQty: 5,
+      );
+      expect(partialMatch.isFullMatch, isFalse);
+
+      final outJson = match.toJson();
+      expect(outJson['batch_id'], 'batch-1');
+      expect(outJson['available_qty'], 15);
+      expect(outJson['requested_qty'], 10);
+    });
+  });
+}

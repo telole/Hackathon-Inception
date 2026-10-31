@@ -51,3 +51,6 @@ app.*.map.json
 env.json
 .env
 *.env
+
+# Supabase CLI local cache (never part of migrations).
+supabase/.temp/

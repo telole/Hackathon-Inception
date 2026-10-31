@@ -13,6 +13,7 @@ abstract class IAuthService {
     required String email,
     required String password,
     String? fullName,
+    String? displayName,
   });
   Future<AuthResponse> signIn({
     required String email,
@@ -56,11 +57,13 @@ class AuthService implements IAuthService {
     required String email,
     required String password,
     String? fullName,
+    String? displayName,
   }) async {
     try {
       final Map<String, dynamic> data = {};
-      if (fullName != null && fullName.trim().isNotEmpty) {
-        data['display_name'] = fullName.trim();
+      final name = displayName ?? fullName;
+      if (name != null && name.trim().isNotEmpty) {
+        data['display_name'] = name.trim();
       }
       return await _client.auth.signUp(
         email: email,
