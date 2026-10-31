@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:resandang/core/models/app_role.dart';
@@ -9,6 +10,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class MockAuthService extends Mock implements IAuthService {}
 
 class MockUser extends Mock implements User {}
+
+class MockSession extends Mock implements Session {}
 
 class MockAuthResponse extends Mock implements AuthResponse {}
 
@@ -92,6 +95,89 @@ void main() {
       expect(notifier.currentUser, isNull);
       expect(notifier.isAuthenticated, isFalse);
       expect(notifier.currentAccess.roles, isEmpty);
+      expect(notifier.isAwaitingEmailConfirmation, isFalse);
+    });
+
+    test('signUp with session == null marks isAwaitingEmailConfirmation and does not fetch access', () async {
+      final mockUser = MockUser();
+      final mockResponse = MockAuthResponse();
+      when(() => mockResponse.user).thenReturn(mockUser);
+      when(() => mockResponse.session).thenReturn(null);
+      when(() => mockAuthService.signUp(
+            email: 'new@test.com',
+            password: 'password123',
+            fullName: any(named: 'fullName'),
+            displayName: any(named: 'displayName'),
+          )).thenAnswer((_) async => mockResponse);
+
+      final success = await notifier.signUp('new@test.com', 'password123', fullName: 'New User');
+
+      expect(success, isTrue);
+      expect(notifier.isAwaitingEmailConfirmation, isTrue);
+      expect(notifier.isAuthenticated, isFalse);
+      expect(notifier.currentAccess.roles, isEmpty);
+      verifyNever(() => mockAuthService.fetchAccess());
+    });
+
+    test('signUp with active session marks authenticated and loads access', () async {
+      final mockUser = MockUser();
+      final mockSession = MockSession();
+      final mockResponse = MockAuthResponse();
+      when(() => mockResponse.user).thenReturn(mockUser);
+      when(() => mockResponse.session).thenReturn(mockSession);
+      when(() => mockAuthService.signUp(
+            email: 'new@test.com',
+            password: 'password123',
+            fullName: any(named: 'fullName'),
+            displayName: any(named: 'displayName'),
+          )).thenAnswer((_) async => mockResponse);
+      when(() => mockAuthService.currentUser).thenReturn(mockUser);
+      when(() => mockAuthService.fetchAccess()).thenAnswer(
+        (_) async => const UserAccess(roles: [AppRole.donatur], ui: AppUiShell.user),
+      );
+
+      final success = await notifier.signUp('new@test.com', 'password123', fullName: 'New User');
+
+      expect(success, isTrue);
+      expect(notifier.isAwaitingEmailConfirmation, isFalse);
+      expect(notifier.isAuthenticated, isTrue);
+      expect(notifier.currentAccess.roles, [AppRole.donatur]);
+      verify(() => mockAuthService.fetchAccess()).called(1);
+    });
+
+    test('handles authStateChanges signedOut event by clearing user and access', () async {
+      final streamController = StreamController<AuthState>();
+      when(() => mockAuthService.authStateChanges).thenAnswer((_) => streamController.stream);
+
+      final customNotifier = AuthStateNotifier(authService: mockAuthService);
+      streamController.add(AuthState(AuthChangeEvent.signedOut, null));
+      await Future.delayed(Duration.zero);
+
+      expect(customNotifier.currentUser, isNull);
+      expect(customNotifier.isAuthenticated, isFalse);
+      expect(customNotifier.currentAccess.roles, isEmpty);
+      customNotifier.dispose();
+      await streamController.close();
+    });
+
+    test('handles authStateChanges signedIn event by refreshing access', () async {
+      final streamController = StreamController<AuthState>();
+      when(() => mockAuthService.authStateChanges).thenAnswer((_) => streamController.stream);
+      final mockUser = MockUser();
+      final mockSession = MockSession();
+      when(() => mockSession.user).thenReturn(mockUser);
+      when(() => mockAuthService.fetchAccess()).thenAnswer(
+        (_) async => const UserAccess(roles: [AppRole.relawan], ui: AppUiShell.user),
+      );
+
+      final customNotifier = AuthStateNotifier(authService: mockAuthService);
+      streamController.add(AuthState(AuthChangeEvent.signedIn, mockSession));
+      await Future.delayed(Duration.zero);
+
+      expect(customNotifier.currentUser, mockUser);
+      expect(customNotifier.currentAccess.roles, [AppRole.relawan]);
+      customNotifier.dispose();
+      await streamController.close();
     });
   });
 }

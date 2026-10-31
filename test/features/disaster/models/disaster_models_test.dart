@@ -54,6 +54,7 @@ void main() {
         'age_group': 'anak',
         'available_qty': 15,
         'matched_qty': 10,
+        'requested_qty': 10,
       };
 
       final match = EmergencyStockMatch.fromJson(json);
@@ -65,11 +66,27 @@ void main() {
       expect(match.category, 'kaos');
       expect(match.availableQty, 15);
       expect(match.matchedQty, 10);
-      expect(match.isFullMatch, isFalse);
+      expect(match.requestedQty, 10);
+      expect(match.isFullMatch, isTrue);
+
+      // Partial match case: requested 10, but batch only provides 5
+      const partialMatch = EmergencyStockMatch(
+        batchId: 'batch-2',
+        pointId: 'point-b',
+        pointName: 'Posko 2',
+        category: 'kaos',
+        sizeCode: 'M',
+        ageGroup: 'anak',
+        requestedQty: 10,
+        availableQty: 5,
+        matchedQty: 5,
+      );
+      expect(partialMatch.isFullMatch, isFalse);
 
       final outJson = match.toJson();
       expect(outJson['batch_id'], 'batch-1');
       expect(outJson['available_qty'], 15);
+      expect(outJson['requested_qty'], 10);
     });
   });
 }

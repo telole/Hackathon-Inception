@@ -16,7 +16,10 @@ abstract class IDisasterService {
   });
   Future<void> approveDisaster({required String incidentId});
   Future<void> closeDisaster({required String incidentId});
-  Future<List<Need>> fetchEmergencyNeeds({String? incidentId});
+  Future<List<Need>> fetchEmergencyNeeds({
+    String? incidentId,
+    bool onlyActive = true,
+  });
   Future<List<EmergencyStockMatch>> findPreCuratedStockForEmergency({
     required String category,
     required String sizeCode,
@@ -80,8 +83,8 @@ class DisasterService implements IDisasterService {
           'title': title,
           'area': ?area,
           'status': 'requested',
-          'starts_at': startsAt.toIso8601String(),
-          'ends_at': endsAt.toIso8601String(),
+          'starts_at': startsAt.toUtc().toIso8601String(),
+          'ends_at': endsAt.toUtc().toIso8601String(),
         })
         .select('id')
         .single();
@@ -106,7 +109,10 @@ class DisasterService implements IDisasterService {
   }
 
   @override
-  Future<List<Need>> fetchEmergencyNeeds({String? incidentId}) async {
+  Future<List<Need>> fetchEmergencyNeeds({
+    String? incidentId,
+    bool onlyActive = true,
+  }) async {
     var query = _client.from('needs').select(
       'id, organization_id, point_id, title, description, deadline_at, status, created_at, incident_id, '
       'need_items(*)',
@@ -115,11 +121,19 @@ class DisasterService implements IDisasterService {
     if (incidentId != null) {
       query = query.eq('incident_id', incidentId);
     }
+    if (onlyActive) {
+      query = query.eq('status', 'open');
+    }
 
     final res = await query.order('created_at', ascending: false);
     final needs = <Need>[];
+    final now = DateTime.now();
     for (final item in res) {
-      needs.add(Need.fromJson(item));
+      final need = Need.fromJson(item);
+      if (onlyActive && (need.status != 'open' || need.deadlineAt.isBefore(now))) {
+        continue;
+      }
+      needs.add(need);
     }
     return needs;
   }
@@ -159,6 +173,7 @@ class DisasterService implements IDisasterService {
           category: category,
           sizeCode: sizeCode,
           ageGroup: ageGroup,
+          requestedQty: requestedQty,
           availableQty: available,
           matchedQty: min(requestedQty, available),
         ));

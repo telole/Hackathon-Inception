@@ -54,6 +54,8 @@ abstract class ILogisticsService {
   Future<List<Shipment>> fetchShipments({
     String? status,
     String? pointId,
+    String? sourcePointId,
+    String? destinationPointId,
   });
   Future<Shipment?> fetchShipmentDetail(String shipmentId);
   Future<List<InventoryBatch>> fetchMatchingBatches({
@@ -248,7 +250,7 @@ class LogisticsService implements ILogisticsService {
     if (pointId != null) {
       query = query.eq('point_id', pointId);
     }
-    final res = await query.order('created_at', ascending: false);
+    final res = await query.order('on_hand_qty', ascending: false);
 
     final batches = <InventoryBatch>[];
     for (final item in res) {
@@ -289,6 +291,8 @@ class LogisticsService implements ILogisticsService {
   Future<List<Shipment>> fetchShipments({
     String? status,
     String? pointId,
+    String? sourcePointId,
+    String? destinationPointId,
   }) async {
     var query = _client.from('shipments').select(
       'id, source_point_id, destination_point_id, assigned_to, status, received_by, '
@@ -297,6 +301,15 @@ class LogisticsService implements ILogisticsService {
     );
     if (status != null) {
       query = query.eq('status', status);
+    }
+    if (sourcePointId != null) {
+      query = query.eq('source_point_id', sourcePointId);
+    }
+    if (destinationPointId != null) {
+      query = query.eq('destination_point_id', destinationPointId);
+    }
+    if (pointId != null) {
+      query = query.or('source_point_id.eq.$pointId,destination_point_id.eq.$pointId');
     }
     final res = await query.order('created_at', ascending: false);
     final shipments = <Shipment>[];
@@ -335,11 +348,14 @@ class LogisticsService implements ILogisticsService {
         .eq('size_code', sizeCode)
         .eq('age_group', ageGroup)
         .gt('on_hand_qty', 0)
-        .order('created_at', ascending: false);
+        .order('on_hand_qty', ascending: false);
 
     final batches = <InventoryBatch>[];
     for (final item in res) {
-      batches.add(InventoryBatch.fromJson(item));
+      final batch = InventoryBatch.fromJson(item);
+      if (batch.availableQty > 0) {
+        batches.add(batch);
+      }
     }
     return batches;
   }

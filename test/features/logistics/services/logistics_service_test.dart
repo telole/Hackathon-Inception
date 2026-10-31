@@ -460,6 +460,34 @@ void main() {
       expect(list.first.isReady, isTrue);
     });
 
+    test('fetchShipments applies pointId or filter correctly', () async {
+      final mockQuery = MockSupabaseQueryBuilder();
+      when(() => mockSupabase.from('shipments')).thenAnswer((_) => mockQuery);
+
+      final shipData = [
+        {
+          'id': 'ship-1',
+          'source_point_id': 'point-a',
+          'destination_point_id': 'point-b',
+          'status': 'ready',
+          'created_at': '2026-10-31T10:00:00Z',
+          'shipment_items': [],
+        }
+      ];
+
+      final builder = FakePostgrestFilterBuilder<List<Map<String, dynamic>>>(
+        Future.value(shipData),
+      );
+      when(() => mockQuery.select(any())).thenAnswer((_) => builder);
+
+      final list = await logisticsService.fetchShipments(
+        pointId: 'point-a',
+      );
+
+      expect(list.length, 1);
+      expect(list.first.sourcePointId, 'point-a');
+    });
+
     test('fetchMatchingBatches filters on variant and on_hand_qty > 0',
         () async {
       final mockQuery = MockSupabaseQueryBuilder();
@@ -494,6 +522,39 @@ void main() {
       expect(matches.length, 1);
       expect(matches.first.id, 'batch-match-1');
       expect(matches.first.availableQty, 8);
+    });
+
+    test('fetchMatchingBatches excludes fully reserved batches with availableQty == 0', () async {
+      final mockQuery = MockSupabaseQueryBuilder();
+      when(() => mockSupabase.from('inventory_batches'))
+          .thenAnswer((_) => mockQuery);
+
+      final batchData = [
+        {
+          'id': 'batch-fully-reserved',
+          'inspection_id': 'insp-2',
+          'point_id': 'point-1',
+          'category': 'kaos',
+          'size_code': 'M',
+          'age_group': 'anak',
+          'initial_qty': 5,
+          'on_hand_qty': 5,
+          'reserved_qty': 5,
+        }
+      ];
+
+      final builder = FakePostgrestFilterBuilder<List<Map<String, dynamic>>>(
+        Future.value(batchData),
+      );
+      when(() => mockQuery.select()).thenAnswer((_) => builder);
+
+      final matches = await logisticsService.fetchMatchingBatches(
+        category: 'kaos',
+        sizeCode: 'M',
+        ageGroup: 'anak',
+      );
+
+      expect(matches, isEmpty);
     });
   });
 }

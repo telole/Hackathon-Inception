@@ -10,6 +10,7 @@ abstract class IAuthService {
     required String email,
     required String password,
     String? fullName,
+    String? displayName,
   });
   Future<AuthResponse> signIn({
     required String email,
@@ -42,10 +43,12 @@ class AuthService implements IAuthService {
     required String email,
     required String password,
     String? fullName,
+    String? displayName,
   }) async {
     final Map<String, dynamic> data = {};
-    if (fullName != null && fullName.trim().isNotEmpty) {
-      data['full_name'] = fullName.trim();
+    final name = displayName ?? fullName;
+    if (name != null && name.trim().isNotEmpty) {
+      data['display_name'] = name.trim();
     }
     return await _client.auth.signUp(
       email: email,
@@ -76,18 +79,12 @@ class AuthService implements IAuthService {
       return UserAccess.empty;
     }
 
-    try {
-      final res = await _client.rpc('my_access');
-      if (res is Map<String, dynamic>) {
-        return UserAccess.fromJson(res);
-      } else if (res is Map) {
-        return UserAccess.fromJson(Map<String, dynamic>.from(res));
-      }
-      return UserAccess.empty;
-    } catch (_) {
-      // Re-throw or return empty access depending on contract.
-      // Returning empty access triggers safe fallback to restricted viewer.
-      return UserAccess.empty;
+    final res = await _client.rpc('my_access');
+    if (res is Map<String, dynamic>) {
+      return UserAccess.fromJson(res);
+    } else if (res is Map) {
+      return UserAccess.fromJson(Map<String, dynamic>.from(res));
     }
+    return UserAccess.empty;
   }
 }

@@ -51,8 +51,10 @@ class DisasterNotifier extends ChangeNotifier {
         _selectedIncident = active.first;
         await loadEmergencyNeeds(incidentId: active.first.id);
       } else {
+        _isDisasterMode = false;
         _selectedIncident = null;
         _emergencyNeeds = [];
+        _stockMatches = [];
       }
     } catch (e) {
       _errorMessage = e.toString();
@@ -66,13 +68,14 @@ class DisasterNotifier extends ChangeNotifier {
     _selectedIncident = incident;
     _stockMatches = [];
     _errorMessage = null;
-    notifyListeners();
 
     if (incident != null) {
       _isDisasterMode = true;
       await loadEmergencyNeeds(incidentId: incident.id);
     } else {
+      _isDisasterMode = false;
       _emergencyNeeds = [];
+      _stockMatches = [];
       notifyListeners();
     }
   }

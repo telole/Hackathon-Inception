@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:resandang/features/donation/models/donation.dart';
@@ -112,6 +113,85 @@ void main() {
       expect(notifier.inspections.containsKey('item-1'), isTrue);
       expect(notifier.inspections['item-1']?.passedQty, 8);
       expect(notifier.donorContact?['contact_name'], 'Pak Budi');
+    });
+
+    test('loadTasks clears selectedTask and curation details if task is removed', () async {
+      when(() => mockService.fetchMyTasks(
+            statuses: ['assigned', 'accepted', 'in_progress'],
+          )).thenAnswer((_) async => []);
+      when(() => mockService.fetchMyTasks(
+            statuses: ['completed', 'declined', 'cancelled', 'failed'],
+          )).thenAnswer((_) async => []);
+
+      // Pre-select a task
+      when(() => mockService.fetchDonationItemsForCuration('donation-2'))
+          .thenAnswer((_) async => [sampleItem]);
+      when(() => mockService.fetchInspectionsForDonation('donation-2'))
+          .thenAnswer((_) async => [sampleInspection]);
+      when(() => mockService.getDonationContact('donation-2'))
+          .thenAnswer((_) async => {'contact_name': 'Pak Budi'});
+
+      await notifier.selectTask(sampleTask);
+      expect(notifier.selectedTask, isNotNull);
+
+      // Now tasks list reloaded and task is gone
+      await notifier.loadTasks();
+
+      expect(notifier.selectedTask, isNull);
+      expect(notifier.curationItems, isEmpty);
+      expect(notifier.inspections, isEmpty);
+      expect(notifier.donorContact, isNull);
+    });
+
+    test('selectTask guards against race conditions across rapid selections', () async {
+      final taskA = sampleTask;
+      final taskB = LogisticsTask(
+        id: 'task-b',
+        pointId: 'point-1',
+        donationId: 'donation-b',
+        kind: 'curation',
+        status: 'accepted',
+        createdAt: DateTime.parse('2026-10-31T10:00:00Z'),
+      );
+
+      final completerA = Completer<List<DonationItem>>();
+      when(() => mockService.fetchDonationItemsForCuration('donation-2'))
+          .thenAnswer((_) => completerA.future);
+      when(() => mockService.fetchInspectionsForDonation('donation-2'))
+          .thenAnswer((_) async => []);
+      when(() => mockService.getDonationContact('donation-2'))
+          .thenAnswer((_) async => null);
+
+      when(() => mockService.fetchDonationItemsForCuration('donation-b'))
+          .thenAnswer((_) async => [
+                const DonationItem(
+                  id: 'item-b',
+                  donationId: 'donation-b',
+                  category: 'celana',
+                  sizeCode: 'M',
+                  ageGroup: 'dewasa',
+                  quantity: 5,
+                )
+              ]);
+      when(() => mockService.fetchInspectionsForDonation('donation-b'))
+          .thenAnswer((_) async => []);
+      when(() => mockService.getDonationContact('donation-b'))
+          .thenAnswer((_) async => null);
+
+      // Start selecting task A (slow async)
+      final futureA = notifier.selectTask(taskA);
+
+      // Immediately select task B (fast async)
+      await notifier.selectTask(taskB);
+
+      // Now task A completes late
+      completerA.complete([sampleItem]);
+      await futureA;
+
+      // Selection must remain Task B with item-b, NOT overwritten by Task A
+      expect(notifier.selectedTask?.id, 'task-b');
+      expect(notifier.curationItems.length, 1);
+      expect(notifier.curationItems.first.id, 'item-b');
     });
 
     test('acceptTask calls respondTask with accepted and reloads', () async {

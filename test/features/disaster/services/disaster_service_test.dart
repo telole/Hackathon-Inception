@@ -152,6 +152,39 @@ void main() {
       expect(id, 'created-incident-uuid');
     });
 
+    test('requestDisasterDeclaration formats startsAt and endsAt in UTC format',
+        () async {
+      final mockQuery = MockSupabaseQueryBuilder();
+      when(() => mockSupabase.from('incidents')).thenAnswer((_) => mockQuery);
+
+      Map<String, dynamic>? capturedInsert;
+      final fakeFilter = FakePostgrestFilterBuilder<List<Map<String, dynamic>>>(
+        Future.value([
+          {'id': 'created-incident-uuid'}
+        ]),
+      );
+      when(() => mockQuery.insert(any())).thenAnswer((invocation) {
+        capturedInsert =
+            invocation.positionalArguments.first as Map<String, dynamic>;
+        return fakeFilter;
+      });
+
+      final localStart = DateTime(2026, 10, 31, 7, 0, 0);
+      final localEnd = DateTime(2026, 11, 5, 7, 0, 0);
+
+      await disasterService.requestDisasterDeclaration(
+        organizationId: 'org-posko-1',
+        title: 'Longsor Wonosobo',
+        area: 'Jawa Tengah',
+        startsAt: localStart,
+        endsAt: localEnd,
+      );
+
+      expect(capturedInsert, isNotNull);
+      expect((capturedInsert!['starts_at'] as String).endsWith('Z'), isTrue);
+      expect((capturedInsert!['ends_at'] as String).endsWith('Z'), isTrue);
+    });
+
     test('approveDisaster updates status to active with approved_by', () async {
       final mockQuery = MockSupabaseQueryBuilder();
       when(() => mockSupabase.from('incidents')).thenAnswer((_) => mockQuery);
@@ -235,10 +268,12 @@ void main() {
       expect(matches.first.batchId, 'batch-b');
       expect(matches.first.availableQty, 12);
       expect(matches.first.matchedQty, 10);
+      expect(matches.first.isFullMatch, isTrue);
 
       expect(matches.last.batchId, 'batch-a');
       expect(matches.last.availableQty, 5);
       expect(matches.last.matchedQty, 5);
+      expect(matches.last.isFullMatch, isFalse);
     });
   });
 }

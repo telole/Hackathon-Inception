@@ -6,6 +6,7 @@ class EmergencyStockMatch {
   final String category;
   final String sizeCode;
   final String ageGroup;
+  final int requestedQty;
   final int availableQty;
   final int matchedQty;
 
@@ -17,13 +18,16 @@ class EmergencyStockMatch {
     required this.category,
     required this.sizeCode,
     required this.ageGroup,
+    required this.requestedQty,
     required this.availableQty,
     required this.matchedQty,
   });
 
-  bool get isFullMatch => matchedQty >= availableQty;
+  /// Evaluates true only when this match fully satisfies the requested quantity
+  bool get isFullMatch => requestedQty > 0 && matchedQty >= requestedQty;
 
   factory EmergencyStockMatch.fromJson(Map<String, dynamic> json) {
+    final matched = (json['matched_qty'] as num).toInt();
     return EmergencyStockMatch(
       batchId: json['batch_id'] as String,
       pointId: json['point_id'] as String,
@@ -32,8 +36,9 @@ class EmergencyStockMatch {
       category: json['category'] as String,
       sizeCode: json['size_code'] as String,
       ageGroup: json['age_group'] as String,
+      requestedQty: (json['requested_qty'] as num?)?.toInt() ?? matched,
       availableQty: (json['available_qty'] as num).toInt(),
-      matchedQty: (json['matched_qty'] as num).toInt(),
+      matchedQty: matched,
     );
   }
 
@@ -46,6 +51,7 @@ class EmergencyStockMatch {
       'category': category,
       'size_code': sizeCode,
       'age_group': ageGroup,
+      'requested_qty': requestedQty,
       'available_qty': availableQty,
       'matched_qty': matchedQty,
     };

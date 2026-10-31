@@ -48,13 +48,13 @@ void main() {
   });
 
   group('AuthService', () {
-    test('signUp delegates to GoTrueClient signUp with metadata', () async {
+    test('signUp delegates to GoTrueClient signUp with display_name metadata', () async {
       final mockResponse = MockAuthResponse();
       when(
         () => mockAuth.signUp(
           email: 'test@example.com',
           password: 'password123',
-          data: {'full_name': 'Budi Santoso'},
+          data: {'display_name': 'Budi Santoso'},
         ),
       ).thenAnswer((_) async => mockResponse);
 
@@ -69,7 +69,34 @@ void main() {
         () => mockAuth.signUp(
           email: 'test@example.com',
           password: 'password123',
-          data: {'full_name': 'Budi Santoso'},
+          data: {'display_name': 'Budi Santoso'},
+        ),
+      ).called(1);
+    });
+
+    test('signUp prefers displayName over fullName when both provided', () async {
+      final mockResponse = MockAuthResponse();
+      when(
+        () => mockAuth.signUp(
+          email: 'test@example.com',
+          password: 'password123',
+          data: {'display_name': 'Budi Display'},
+        ),
+      ).thenAnswer((_) async => mockResponse);
+
+      final result = await authService.signUp(
+        email: 'test@example.com',
+        password: 'password123',
+        fullName: 'Budi Santoso',
+        displayName: 'Budi Display',
+      );
+
+      expect(result, mockResponse);
+      verify(
+        () => mockAuth.signUp(
+          email: 'test@example.com',
+          password: 'password123',
+          data: {'display_name': 'Budi Display'},
         ),
       ).called(1);
     });
@@ -130,6 +157,15 @@ void main() {
       expect(access.ui, AppUiShell.user);
       expect(access.roles, isEmpty);
       verifyNever(() => mockSupabase.rpc('my_access'));
+    });
+
+    test('fetchAccess rethrows error when RPC fails rather than hiding it as empty access', () async {
+      when(() => mockAuth.currentUser).thenReturn(MockUser());
+      when(() => mockSupabase.rpc('my_access')).thenThrow(
+        const PostgrestException(message: 'Connection failed', code: '500'),
+      );
+
+      expect(() => authService.fetchAccess(), throwsA(isA<PostgrestException>()));
     });
   });
 }

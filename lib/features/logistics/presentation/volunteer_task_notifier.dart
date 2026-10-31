@@ -13,6 +13,7 @@ class VolunteerTaskNotifier extends ChangeNotifier {
   List<DonationItem> _curationItems = [];
   Map<String, Inspection> _inspections = {};
   Map<String, dynamic>? _donorContact;
+  int _selectionRequestId = 0;
   bool _isLoading = false;
   String? _errorMessage;
 
@@ -55,6 +56,11 @@ class VolunteerTaskNotifier extends ChangeNotifier {
             );
         if (match != null) {
           _selectedTask = match;
+        } else {
+          _selectedTask = null;
+          _curationItems = [];
+          _inspections = {};
+          _donorContact = null;
         }
       }
     } catch (e) {
@@ -66,6 +72,7 @@ class VolunteerTaskNotifier extends ChangeNotifier {
   }
 
   Future<void> selectTask(LogisticsTask task) async {
+    final requestId = ++_selectionRequestId;
     _selectedTask = task;
     _curationItems = [];
     _inspections = {};
@@ -80,31 +87,44 @@ class VolunteerTaskNotifier extends ChangeNotifier {
     notifyListeners();
 
     try {
+      List<DonationItem> items = [];
+      Map<String, Inspection> inspections = {};
+      Map<String, dynamic>? contact;
+
       if (task.isCuration) {
-        final items =
+        final fetchedItems =
             await _logisticsService.fetchDonationItemsForCuration(donationId);
         final inspList =
             await _logisticsService.fetchInspectionsForDonation(donationId);
 
-        _curationItems = items;
-        _inspections = {for (final i in inspList) i.itemId: i};
+        items = fetchedItems;
+        inspections = {for (final i in inspList) i.itemId: i};
       }
 
       if ((task.isPickup || task.isCuration) &&
           (task.isAccepted || task.isInProgress)) {
         try {
-          _donorContact =
-              await _logisticsService.getDonationContact(donationId);
+          contact = await _logisticsService.getDonationContact(donationId);
         } catch (_) {
           // Contact may be restricted if task is not active
-          _donorContact = null;
+          contact = null;
         }
       }
+
+      // Guard against stale async responses if selection changed
+      if (requestId != _selectionRequestId) return;
+
+      _curationItems = items;
+      _inspections = inspections;
+      _donorContact = contact;
     } catch (e) {
+      if (requestId != _selectionRequestId) return;
       _errorMessage = e.toString();
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (requestId == _selectionRequestId) {
+        _isLoading = false;
+        notifyListeners();
+      }
     }
   }
 

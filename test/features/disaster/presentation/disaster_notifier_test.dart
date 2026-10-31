@@ -51,6 +51,7 @@ void main() {
     category: 'jaket',
     sizeCode: 'L',
     ageGroup: 'dewasa',
+    requestedQty: 20,
     availableQty: 25,
     matchedQty: 20,
   );
@@ -101,6 +102,33 @@ void main() {
       expect(notifier.selectedIncident?.id, 'inc-1');
       expect(notifier.isDisasterMode, isTrue);
       expect(notifier.emergencyNeeds.length, 1);
+    });
+
+    test('loadIncidents disables isDisasterMode and resets matches when active is empty', () async {
+      when(() => mockService.fetchActiveIncidents()).thenAnswer((_) async => []);
+      when(() => mockService.fetchAllIncidents()).thenAnswer((_) async => []);
+
+      await notifier.loadIncidents();
+
+      expect(notifier.activeIncidents, isEmpty);
+      expect(notifier.isDisasterMode, isFalse);
+      expect(notifier.selectedIncident, isNull);
+      expect(notifier.emergencyNeeds, isEmpty);
+      expect(notifier.stockMatches, isEmpty);
+    });
+
+    test('selectIncident(null) turns off disaster mode and clears matches', () async {
+      when(() => mockService.fetchEmergencyNeeds(incidentId: 'inc-1'))
+          .thenAnswer((_) async => [sampleEmergencyNeed]);
+
+      await notifier.selectIncident(sampleIncident);
+      expect(notifier.isDisasterMode, isTrue);
+
+      await notifier.selectIncident(null);
+      expect(notifier.selectedIncident, isNull);
+      expect(notifier.isDisasterMode, isFalse);
+      expect(notifier.emergencyNeeds, isEmpty);
+      expect(notifier.stockMatches, isEmpty);
     });
 
     test('findMatchesForNeedItem queries and stores stock matches', () async {

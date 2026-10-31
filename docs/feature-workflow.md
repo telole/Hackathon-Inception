@@ -45,9 +45,9 @@ flowchart TD
 ## 3. Detail Tahapan Pengembangan
 
 ### Tahap 1: Telaah Kontrak Database & RPC
-- Periksa schema database, tabel, kolom, enum, RLS, serta parameter RPC pada [`docs/database-and-rbac.md`](file:///C:/Users/PERSONAL/Downloads/Hackathon-Inception-schema-pr/docs/database-and-rbac.md).
+- Periksa schema database, tabel, kolom, enum, RLS, serta parameter RPC pada [docs/database-and-rbac.md](docs/database-and-rbac.md).
 - Pastikan memahami peran pengguna yang berwenang (misal: role `donatur`, `relawan`, `mitra`, atau `admin`).
-- Catat nama parameter RPC secara presisi (contoh: `p_id`, `p_status`, `p_reason`).
+- Catat nama parameter RPC secara presisi (contoh: `p_id`, `p_status`).
 
 ---
 
@@ -59,13 +59,13 @@ flowchart TD
   ```dart
   class LogisticsTask {
     final String id;
-    final String taskType;
+    final String kind;
     final String status;
     final DateTime createdAt;
 
     const LogisticsTask({
       required this.id,
-      required this.taskType,
+      required this.kind,
       required this.status,
       required this.createdAt,
     });
@@ -73,7 +73,7 @@ flowchart TD
     factory LogisticsTask.fromJson(Map<String, dynamic> json) {
       return LogisticsTask(
         id: json['id'] as String,
-        taskType: json['task_type'] as String,
+        kind: json['kind'] as String,
         status: json['status'] as String,
         createdAt: DateTime.parse(json['created_at'] as String),
       );
@@ -98,12 +98,10 @@ flowchart TD
     Future<void> respondTask({
       required String taskId,
       required String status,
-      String? notes,
     }) async {
       await _client.rpc('respond_task', params: {
         'p_id': taskId,
         'p_status': status,
-        if (notes != null) 'p_notes': notes,
       });
     }
   }

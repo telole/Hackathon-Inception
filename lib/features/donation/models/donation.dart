@@ -171,5 +171,5 @@ class Donation {
       hasValidPhotoCount &&
       items.isNotEmpty &&
       pointId != null &&
-      status == 'draft';
+      (status == 'draft' || status == 'needs_revision');
 }

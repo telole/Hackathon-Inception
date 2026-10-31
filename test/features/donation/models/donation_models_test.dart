@@ -70,5 +70,55 @@ void main() {
       expect(event.eventType, 'curated');
       expect(event.summary, '8 layak, 2 tidak layak');
     });
+
+    test('isReadyToSubmit accepts both draft and needs_revision statuses', () {
+      final baseJson = {
+        'id': 'don-rev',
+        'donor_id': 'donor-uuid-1',
+        'tracking_code': 'PK-TEST1234',
+        'point_id': 'point-uuid-1',
+        'method': 'dropoff',
+        'clean_check': true,
+        'intact_check': true,
+        'not_torn_check': true,
+        'created_at': '2026-10-31T09:00:00Z',
+        'donation_items': [
+          {
+            'id': 'item-1',
+            'donation_id': 'don-rev',
+            'category': 'shirt',
+            'size_code': 'M',
+            'age_group': 'adult',
+            'quantity': 2,
+          }
+        ],
+        'donation_photos': [
+          {
+            'id': 'photo-1',
+            'donation_id': 'don-rev',
+            'storage_path': 'path/to/photo.jpg',
+            'created_at': '2026-10-31T09:05:00Z',
+          }
+        ],
+      };
+
+      final draftDonation = Donation.fromJson({
+        ...baseJson,
+        'status': 'draft',
+      });
+      expect(draftDonation.isReadyToSubmit, isTrue);
+
+      final revisionDonation = Donation.fromJson({
+        ...baseJson,
+        'status': 'needs_revision',
+      });
+      expect(revisionDonation.isReadyToSubmit, isTrue);
+
+      final submittedDonation = Donation.fromJson({
+        ...baseJson,
+        'status': 'submitted',
+      });
+      expect(submittedDonation.isReadyToSubmit, isFalse);
+    });
   });
 }

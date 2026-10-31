@@ -31,22 +31,29 @@ class NeedsService implements INeedsService {
 
     final res = await _client.from('needs').select(query);
     final List<Need> needs = [];
+    final now = DateTime.now();
     for (final item in res) {
       final need = Need.fromJson(item);
-      if (need.status == 'open') {
-        if (category != null &&
-            !need.items.any((i) => i.category.toLowerCase() == category.toLowerCase())) {
-          continue;
+      if (need.status == 'open' && need.deadlineAt.isAfter(now)) {
+        final matches = need.items.any((item) {
+          if (category != null &&
+              item.category.toLowerCase() != category.toLowerCase()) {
+            return false;
+          }
+          if (ageGroup != null &&
+              item.ageGroup.toLowerCase() != ageGroup.toLowerCase()) {
+            return false;
+          }
+          if (sizeCode != null &&
+              item.sizeCode.toLowerCase() != sizeCode.toLowerCase()) {
+            return false;
+          }
+          return true;
+        });
+
+        if (matches) {
+          needs.add(need);
         }
-        if (ageGroup != null &&
-            !need.items.any((i) => i.ageGroup.toLowerCase() == ageGroup.toLowerCase())) {
-          continue;
-        }
-        if (sizeCode != null &&
-            !need.items.any((i) => i.sizeCode.toLowerCase() == sizeCode.toLowerCase())) {
-          continue;
-        }
-        needs.add(need);
       }
     }
     return needs;
@@ -61,12 +68,12 @@ class NeedsService implements INeedsService {
       need_items(id, need_id, category, size_code, age_group, requested_qty)
     ''';
 
-    final res = await _client.from('needs').select(query);
-    for (final item in res) {
-      if (item['id'] == id) {
-        return Need.fromJson(item);
-      }
-    }
-    return null;
+    final res = await _client
+        .from('needs')
+        .select(query)
+        .eq('id', id)
+        .maybeSingle();
+    if (res == null) return null;
+    return Need.fromJson(res);
   }
 }
