@@ -1,5 +1,8 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/errors/error_mapper.dart';
+import '../../../core/models/app_role.dart';
 import '../../../core/models/user_access.dart';
+import '../../../core/services/supabase_client_provider.dart';
 
 abstract class IAuthService {
   User? get currentUser;
@@ -17,6 +20,17 @@ abstract class IAuthService {
   });
   Future<void> signOut();
   Future<UserAccess> fetchAccess();
+  Future<void> requestRole(AppRole role);
+  Future<String> requestOrganization({
+    required String name,
+    required String kind,
+    required String area,
+  });
+  Future<void> updateProfile({
+    String? displayName,
+    String? avatarPath,
+    String? area,
+  });
 }
 
 class AuthService implements IAuthService {
@@ -43,15 +57,19 @@ class AuthService implements IAuthService {
     required String password,
     String? fullName,
   }) async {
-    final Map<String, dynamic> data = {};
-    if (fullName != null && fullName.trim().isNotEmpty) {
-      data['display_name'] = fullName.trim();
+    try {
+      final Map<String, dynamic> data = {};
+      if (fullName != null && fullName.trim().isNotEmpty) {
+        data['display_name'] = fullName.trim();
+      }
+      return await _client.auth.signUp(
+        email: email,
+        password: password,
+        data: data.isNotEmpty ? data : null,
+      );
+    } catch (e, s) {
+      throw ErrorMapper.map(e, s);
     }
-    return await _client.auth.signUp(
-      email: email,
-      password: password,
-      data: data.isNotEmpty ? data : null,
-    );
   }
 
   @override
@@ -59,15 +77,23 @@ class AuthService implements IAuthService {
     required String email,
     required String password,
   }) async {
-    return await _client.auth.signInWithPassword(
-      email: email,
-      password: password,
-    );
+    try {
+      return await _client.auth.signInWithPassword(
+        email: email,
+        password: password,
+      );
+    } catch (e, s) {
+      throw ErrorMapper.map(e, s);
+    }
   }
 
   @override
   Future<void> signOut() async {
-    await _client.auth.signOut();
+    try {
+      await _client.auth.signOut();
+    } catch (e, s) {
+      throw ErrorMapper.map(e, s);
+    }
   }
 
   @override
@@ -77,7 +103,8 @@ class AuthService implements IAuthService {
     }
 
     try {
-      final res = await _client.rpc('my_access');
+      // Prioritaskan RPC get_my_context yang mengembalikan context lengkap (api-contracts.md)
+      final res = await _client.rpc('get_my_context');
       if (res is Map<String, dynamic>) {
         return UserAccess.fromJson(res);
       } else if (res is Map) {
@@ -85,7 +112,73 @@ class AuthService implements IAuthService {
       }
       return UserAccess.empty;
     } catch (_) {
-      return UserAccess.empty;
+      // Fallback ke my_access jika get_my_context belum terpasang
+      try {
+        final res = await _client.rpc('my_access');
+        if (res is Map<String, dynamic>) {
+          return UserAccess.fromJson(res);
+        } else if (res is Map) {
+          return UserAccess.fromJson(Map<String, dynamic>.from(res));
+        }
+        return UserAccess.empty;
+      } catch (_) {
+        return UserAccess.empty;
+      }
+    }
+  }
+
+  @override
+  Future<void> requestRole(AppRole role) async {
+    try {
+      final key = SupabaseClientProvider.newRequestKey();
+      await _client.rpc('request_role', params: {
+        'p_role': role.name,
+        'p_request_key': key,
+      });
+    } catch (e, s) {
+      throw ErrorMapper.map(e, s);
+    }
+  }
+
+  @override
+  Future<String> requestOrganization({
+    required String name,
+    required String kind,
+    required String area,
+  }) async {
+    try {
+      final key = SupabaseClientProvider.newRequestKey();
+      final res = await _client.rpc('request_organization', params: {
+        'p_name': name,
+        'p_kind': kind,
+        'p_area': area,
+        'p_request_key': key,
+      });
+      return res.toString();
+    } catch (e, s) {
+      throw ErrorMapper.map(e, s);
+    }
+  }
+
+  @override
+  Future<void> updateProfile({
+    String? displayName,
+    String? avatarPath,
+    String? area,
+  }) async {
+    final uid = currentUser?.id;
+    if (uid == null) return;
+    try {
+      final updates = <String, dynamic>{};
+      if (displayName != null) updates['display_name'] = displayName;
+      if (avatarPath != null) updates['avatar_path'] = avatarPath;
+      if (area != null) updates['area'] = area;
+
+      if (updates.isNotEmpty) {
+        await _client.from('profiles').update(updates).eq('id', uid);
+      }
+    } catch (e, s) {
+      throw ErrorMapper.map(e, s);
     }
   }
 }

@@ -1,36 +1,93 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/errors/error_mapper.dart';
+import '../../../core/services/supabase_client_provider.dart';
 
 abstract class ILogisticsService {
+  /// Merespons tugas (accepted/declined/in_progress/completed/failed)
   Future<void> respondTask({
     required String taskId,
     required String status,
   });
+
+  /// Memajukan status donasi (advance_donation RPC)
   Future<void> advanceDonation({
     required String donationId,
     required String status,
   });
+
+  /// Mencatat hasil inspeksi fisik barang donasi
   Future<String?> recordInspection({
     required String itemId,
     required int passedQty,
     required int rejectedQty,
     String? reason,
   });
+
+  /// Mereservasi stok batch ke kebutuhan
   Future<String?> reserveAllocation({
     required String batchId,
     required String needItemId,
     required int quantity,
     required String requestKey,
   });
+
+  /// Membuat shipment dari alokasi yang sudah reserved
   Future<String?> createShipment({
     required String allocationId,
     required String volunteerId,
   });
+
+  /// Menugaskan task logistik ke relawan
+  Future<String> assignTask({
+    required String donationId,
+    required String pointId,
+    required String volunteerId,
+    required String kind,
+    DateTime? scheduledAt,
+    String? notes,
+  });
+
+  /// Mendispatch shipment (mengurangi stok dari titik sumber)
   Future<void> dispatchShipment(String shipmentId);
+
+  /// Mengkonfirmasi penerimaan barang di tujuan
   Future<void> confirmReceipt({
     required String shipmentId,
     required int goodQty,
     required int rejectedQty,
     required int missingQty,
+  });
+
+  /// Membatalkan alokasi yang sudah reserved
+  Future<void> cancelAllocation({
+    required String allocationId,
+    String? reason,
+  });
+
+  /// Mendapatkan daftar tugas relawan yang sedang login
+  Future<List<Map<String, dynamic>>> listMyTasks({String? status});
+
+  /// Mendapatkan inventori titik tertentu
+  Future<List<Map<String, dynamic>>> listInventory({
+    required String pointId,
+    String? category,
+    String? sizeCode,
+  });
+
+  /// Mendapatkan kandidat matching untuk donation item
+  Future<List<Map<String, dynamic>>> findMatches({
+    required String category,
+    required String sizeCode,
+    required String ageGroup,
+    int limit = 5,
+  });
+
+  /// Memperbarui status referral daur ulang
+  Future<void> updateRecyclingReferral({
+    required String referralId,
+    String? partnerId,
+    String? status,
+    String? evidence,
   });
 }
 
@@ -45,13 +102,14 @@ class LogisticsService implements ILogisticsService {
     required String taskId,
     required String status,
   }) async {
-    await _client.rpc(
-      'respond_task',
-      params: {
+    try {
+      await _client.rpc('respond_task', params: {
         'p_id': taskId,
         'p_status': status,
-      },
-    );
+      });
+    } catch (e, s) {
+      throw ErrorMapper.map(e, s);
+    }
   }
 
   @override
@@ -59,13 +117,14 @@ class LogisticsService implements ILogisticsService {
     required String donationId,
     required String status,
   }) async {
-    await _client.rpc(
-      'advance_donation',
-      params: {
+    try {
+      await _client.rpc('advance_donation', params: {
         'p_id': donationId,
         'p_status': status,
-      },
-    );
+      });
+    } catch (e, s) {
+      throw ErrorMapper.map(e, s);
+    }
   }
 
   @override
@@ -75,16 +134,17 @@ class LogisticsService implements ILogisticsService {
     required int rejectedQty,
     String? reason,
   }) async {
-    final result = await _client.rpc(
-      'record_inspection',
-      params: {
+    try {
+      final result = await _client.rpc('record_inspection', params: {
         'p_item': itemId,
         'p_passed': passedQty,
         'p_rejected': rejectedQty,
-        'p_reason': ?reason,
-      },
-    );
-    return result?.toString();
+        'p_reason': reason,
+      });
+      return result?.toString();
+    } catch (e, s) {
+      throw ErrorMapper.map(e, s);
+    }
   }
 
   @override
@@ -94,16 +154,17 @@ class LogisticsService implements ILogisticsService {
     required int quantity,
     required String requestKey,
   }) async {
-    final result = await _client.rpc(
-      'reserve_allocation',
-      params: {
+    try {
+      final result = await _client.rpc('reserve_allocation', params: {
         'p_batch': batchId,
         'p_need_item': needItemId,
         'p_qty': quantity,
         'p_key': requestKey,
-      },
-    );
-    return result?.toString();
+      });
+      return result?.toString();
+    } catch (e, s) {
+      throw ErrorMapper.map(e, s);
+    }
   }
 
   @override
@@ -111,22 +172,50 @@ class LogisticsService implements ILogisticsService {
     required String allocationId,
     required String volunteerId,
   }) async {
-    final result = await _client.rpc(
-      'create_shipment',
-      params: {
+    try {
+      final result = await _client.rpc('create_shipment', params: {
         'p_allocation': allocationId,
         'p_volunteer': volunteerId,
-      },
-    );
-    return result?.toString();
+      });
+      return result?.toString();
+    } catch (e, s) {
+      throw ErrorMapper.map(e, s);
+    }
+  }
+
+  @override
+  Future<String> assignTask({
+    required String donationId,
+    required String pointId,
+    required String volunteerId,
+    required String kind,
+    DateTime? scheduledAt,
+    String? notes,
+  }) async {
+    try {
+      final key = SupabaseClientProvider.newRequestKey();
+      final result = await _client.rpc('assign_task', params: {
+        'p_donation_id': donationId,
+        'p_point_id': pointId,
+        'p_volunteer_id': volunteerId,
+        'p_kind': kind,
+        'p_scheduled_at': scheduledAt?.toIso8601String(),
+        'p_notes': notes,
+        'p_request_key': key,
+      });
+      return result?.toString() ?? '';
+    } catch (e, s) {
+      throw ErrorMapper.map(e, s);
+    }
   }
 
   @override
   Future<void> dispatchShipment(String shipmentId) async {
-    await _client.rpc(
-      'dispatch_shipment',
-      params: {'p_id': shipmentId},
-    );
+    try {
+      await _client.rpc('dispatch_shipment', params: {'p_id': shipmentId});
+    } catch (e, s) {
+      throw ErrorMapper.map(e, s);
+    }
   }
 
   @override
@@ -136,14 +225,112 @@ class LogisticsService implements ILogisticsService {
     required int rejectedQty,
     required int missingQty,
   }) async {
-    await _client.rpc(
-      'confirm_receipt',
-      params: {
+    try {
+      await _client.rpc('confirm_receipt', params: {
         'p_id': shipmentId,
         'p_good': goodQty,
         'p_rejected': rejectedQty,
         'p_missing': missingQty,
-      },
-    );
+      });
+    } catch (e, s) {
+      throw ErrorMapper.map(e, s);
+    }
+  }
+
+  @override
+  Future<void> cancelAllocation({
+    required String allocationId,
+    String? reason,
+  }) async {
+    try {
+      final key = SupabaseClientProvider.newRequestKey();
+      await _client.rpc('cancel_allocation', params: {
+        'p_allocation_id': allocationId,
+        'p_reason': reason,
+        'p_request_key': key,
+      });
+    } catch (e, s) {
+      throw ErrorMapper.map(e, s);
+    }
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> listMyTasks({String? status}) async {
+    try {
+      final res = await _client.rpc('list_my_tasks', params: {
+        'p_status': status,
+      });
+      if (res is List) {
+        return res.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      }
+      return [];
+    } catch (e, s) {
+      throw ErrorMapper.map(e, s);
+    }
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> listInventory({
+    required String pointId,
+    String? category,
+    String? sizeCode,
+  }) async {
+    try {
+      final res = await _client.rpc('list_inventory', params: {
+        'p_point_id': pointId,
+        'p_category': category,
+        'p_size_code': sizeCode,
+      });
+      if (res is List) {
+        return res.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      }
+      return [];
+    } catch (e, s) {
+      throw ErrorMapper.map(e, s);
+    }
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> findMatches({
+    required String category,
+    required String sizeCode,
+    required String ageGroup,
+    int limit = 5,
+  }) async {
+    try {
+      final res = await _client.rpc('find_matches', params: {
+        'p_category': category,
+        'p_size_code': sizeCode,
+        'p_age_group': ageGroup,
+        'p_limit': limit,
+      });
+      if (res is List) {
+        return res.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      }
+      return [];
+    } catch (e, s) {
+      throw ErrorMapper.map(e, s);
+    }
+  }
+
+  @override
+  Future<void> updateRecyclingReferral({
+    required String referralId,
+    String? partnerId,
+    String? status,
+    String? evidence,
+  }) async {
+    try {
+      final key = SupabaseClientProvider.newRequestKey();
+      await _client.rpc('update_recycling_referral', params: {
+        'p_referral_id': referralId,
+        'p_partner_id': partnerId,
+        'p_status': status,
+        'p_evidence': evidence,
+        'p_request_key': key,
+      });
+    } catch (e, s) {
+      throw ErrorMapper.map(e, s);
+    }
   }
 }

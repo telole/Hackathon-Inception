@@ -373,3 +373,877 @@ create trigger audit_organizations after insert or update or delete on public.or
 create trigger audit_programs after insert or update or delete on public.needs for each row execute function private.audit_operation();
 create trigger audit_incidents after insert or update or delete on public.incidents for each row execute function private.audit_operation();
 revoke execute on function private.guard_task(),private.audit_operation() from public,anon,authenticated;
+
+-- =====================================================================
+-- KONTRAK API & RPC EXTENSIONS (api-contracts.md)
+-- SQLSTATE mapping:
+-- P1001: AUTH_REQUIRED
+-- P1002: FORBIDDEN
+-- P1003: VALIDATION_ERROR
+-- P1004: VERSION_CONFLICT
+-- P1005: STOCK_CONFLICT
+-- P1006: NEED_CLOSED
+-- P1007: INVALID_TRANSITION
+-- P1008: IDEMPOTENCY_CONFLICT
+-- P1009: ALREADY_CONFIRMED
+-- =====================================================================
+
+-- 1. get_my_context
+create or replace function public.get_my_context() returns jsonb language plpgsql security definer set search_path='' as $$
+declare
+  v_uid uuid := auth.uid();
+  v_prof record;
+  v_roles jsonb;
+  v_memberships jsonb;
+  v_ui text;
+begin
+  if v_uid is null then
+    raise exception 'AUTH_REQUIRED' using errcode='P1001';
+  end if;
+  
+  select * into v_prof from public.profiles where id = v_uid;
+  select coalesce(jsonb_agg(role), '[]'::jsonb) into v_roles from public.user_roles where user_id = v_uid;
+  select coalesce(jsonb_agg(jsonb_build_object('organization_id', m.organization_id, 'org_name', o.name, 'kind', o.kind, 'verified', o.verified, 'active', m.active)), '[]'::jsonb)
+    into v_memberships
+    from public.organization_members m
+    join public.organizations o on o.id = m.organization_id
+    where m.user_id = v_uid and m.active and o.active;
+    
+  v_ui := case when private.is_admin() then 'admin' else 'user' end;
+
+  return jsonb_build_object(
+    'user_id', v_uid,
+    'profile', jsonb_build_object('display_name', coalesce(v_prof.display_name, ''), 'avatar_path', v_prof.avatar_path, 'area', v_prof.area),
+    'roles', v_roles,
+    'memberships', v_memberships,
+    'ui', v_ui
+  );
+end$$;
+
+-- 2. list_needs
+create or replace function public.list_needs(
+  p_category text default null,
+  p_size text default null,
+  p_age_group text default null,
+  p_area text default null,
+  p_emergency boolean default null,
+  p_limit integer default 20,
+  p_offset integer default 0
+) returns jsonb language plpgsql stable security invoker set search_path='' as $$
+begin
+  return coalesce((
+    select jsonb_agg(row_to_json(n)) from (
+      select 
+        n.id,
+        n.organization_id,
+        o.name as organization_name,
+        o.area as organization_area,
+        n.point_id,
+        p.name as point_name,
+        p.public_address as point_address,
+        n.incident_id,
+        i.title as incident_title,
+        n.title,
+        n.description,
+        n.deadline_at,
+        n.status,
+        n.created_at,
+        (
+          select coalesce(jsonb_agg(jsonb_build_object(
+            'id', ni.id,
+            'category', ni.category,
+            'size_code', ni.size_code,
+            'age_group', ni.age_group,
+            'requested_qty', ni.requested_qty,
+            'reserved_qty', coalesce((select sum(a.quantity) from public.allocations a where a.need_item_id = ni.id and a.status = 'reserved'), 0),
+            'dispatched_qty', coalesce((select sum(a.quantity) from public.allocations a where a.need_item_id = ni.id and a.status = 'dispatched'), 0),
+            'received_qty', coalesce((select sum(si.received_good) from public.shipment_items si join public.allocations a on a.id = si.allocation_id where a.need_item_id = ni.id), 0),
+            'remaining_qty', greatest(0, ni.requested_qty - coalesce((select sum(a.quantity) from public.allocations a where a.need_item_id = ni.id and a.status in ('reserved', 'dispatched', 'received')), 0))
+          )), '[]'::jsonb)
+          from public.need_items ni
+          where ni.need_id = n.id
+          and (p_category is null or ni.category ilike p_category)
+          and (p_size is null or ni.size_code ilike p_size)
+          and (p_age_group is null or ni.age_group ilike p_age_group)
+        ) as lines
+      from public.needs n
+      join public.organizations o on o.id = n.organization_id
+      join public.collection_points p on p.id = n.point_id
+      left join public.incidents i on i.id = n.incident_id
+      where n.status = 'open'
+        and o.verified = true
+        and o.active = true
+        and (p_area is null or o.area ilike '%' || p_area || '%' or p.public_address ilike '%' || p_area || '%')
+        and (p_emergency is null or (p_emergency = true and n.incident_id is not null) or (p_emergency = false and n.incident_id is null))
+        and (
+          p_category is null and p_size is null and p_age_group is null
+          or exists (
+            select 1 from public.need_items ni 
+            where ni.need_id = n.id 
+              and (p_category is null or ni.category ilike p_category)
+              and (p_size is null or ni.size_code ilike p_size)
+              and (p_age_group is null or ni.age_group ilike p_age_group)
+          )
+        )
+      order by (n.incident_id is not null) desc, n.deadline_at asc, n.created_at desc
+      limit p_limit offset p_offset
+    ) n
+  ), '[]'::jsonb);
+end$$;
+
+-- 3. get_need_detail
+create or replace function public.get_need_detail(p_need_id uuid) returns jsonb language plpgsql stable security invoker set search_path='' as $$
+declare
+  v_res jsonb;
+begin
+  select row_to_json(r)::jsonb into v_res from (
+    select 
+      n.id,
+      n.organization_id,
+      o.name as organization_name,
+      o.kind as organization_kind,
+      o.area as organization_area,
+      n.point_id,
+      p.name as point_name,
+      p.public_address as point_address,
+      p.opening_hours as point_opening_hours,
+      n.incident_id,
+      i.title as incident_title,
+      n.title,
+      n.description,
+      n.deadline_at,
+      n.status,
+      n.created_at,
+      (
+        select coalesce(jsonb_agg(jsonb_build_object(
+          'id', ni.id,
+          'category', ni.category,
+          'size_code', ni.size_code,
+          'age_group', ni.age_group,
+          'requested_qty', ni.requested_qty,
+          'reserved_qty', coalesce((select sum(a.quantity) from public.allocations a where a.need_item_id = ni.id and a.status = 'reserved'), 0),
+          'dispatched_qty', coalesce((select sum(a.quantity) from public.allocations a where a.need_item_id = ni.id and a.status = 'dispatched'), 0),
+          'received_qty', coalesce((select sum(si.received_good) from public.shipment_items si join public.allocations a on a.id = si.allocation_id where a.need_item_id = ni.id), 0),
+          'remaining_qty', greatest(0, ni.requested_qty - coalesce((select sum(a.quantity) from public.allocations a where a.need_item_id = ni.id and a.status in ('reserved', 'dispatched', 'received')), 0))
+        )), '[]'::jsonb)
+        from public.need_items ni
+        where ni.need_id = n.id
+      ) as lines
+    from public.needs n
+    join public.organizations o on o.id = n.organization_id
+    join public.collection_points p on p.id = n.point_id
+    left join public.incidents i on i.id = n.incident_id
+    where n.id = p_need_id
+  ) r;
+  
+  return v_res;
+end$$;
+
+-- 4. find_matches (deterministic candidate matching)
+create or replace function public.find_matches(
+  p_category text,
+  p_size_code text,
+  p_age_group text,
+  p_limit integer default 5
+) returns jsonb language plpgsql stable security invoker set search_path='' as $$
+begin
+  return coalesce((
+    select jsonb_agg(row_to_json(m)) from (
+      select 
+        n.id as need_id,
+        ni.id as need_item_id,
+        n.title as need_title,
+        o.name as organization_name,
+        p.name as point_name,
+        ni.category,
+        ni.size_code,
+        ni.age_group,
+        ni.requested_qty,
+        greatest(0, ni.requested_qty - coalesce((select sum(a.quantity) from public.allocations a where a.need_item_id = ni.id and a.status in ('reserved', 'dispatched', 'received')), 0)) as remaining_qty,
+        case 
+          when n.incident_id is not null then 'Kebutuhan Posko Darurat Bencana (Prioritas Utama)'
+          when n.deadline_at < now() + interval '3 days' then 'Tenggat Waktu Mendesak (< 3 Hari)'
+          else 'Kesesuaian Spesifikasi Pakaian Terverifikasi'
+        end as match_reason,
+        (n.incident_id is not null) as is_emergency
+      from public.need_items ni
+      join public.needs n on n.id = ni.need_id
+      join public.organizations o on o.id = n.organization_id
+      join public.collection_points p on p.id = n.point_id
+      where n.status = 'open'
+        and n.deadline_at > now()
+        and o.verified = true
+        and o.active = true
+        and ni.category ilike p_category
+        and ni.size_code ilike p_size_code
+        and ni.age_group ilike p_age_group
+        and ni.requested_qty > coalesce((select sum(a.quantity) from public.allocations a where a.need_item_id = ni.id and a.status in ('reserved', 'dispatched', 'received')), 0)
+      order by (n.incident_id is not null) desc, n.deadline_at asc, n.created_at asc
+      limit p_limit
+    ) m
+  ), '[]'::jsonb);
+end$$;
+
+-- 5. list_points
+create or replace function public.list_points(p_area text default null) returns jsonb language sql stable security invoker set search_path='' as $$
+  select coalesce(jsonb_agg(row_to_json(pt)), '[]'::jsonb) from (
+    select 
+      cp.id,
+      cp.organization_id,
+      o.name as organization_name,
+      cp.name,
+      cp.public_address,
+      cp.latitude,
+      cp.longitude,
+      cp.opening_hours,
+      cp.capacity_pieces,
+      cp.active
+    from public.collection_points cp
+    join public.organizations o on o.id = cp.organization_id
+    where cp.active = true and o.verified = true and o.active = true
+      and (p_area is null or cp.public_address ilike '%' || p_area || '%' or o.area ilike '%' || p_area || '%')
+    order by cp.name asc
+  ) pt;
+$$;
+
+-- 6. list_my_tasks
+create or replace function public.list_my_tasks(p_status text default null) returns jsonb language plpgsql stable security invoker set search_path='' as $$
+begin
+  if auth.uid() is null then
+    raise exception 'AUTH_REQUIRED' using errcode='P1001';
+  end if;
+  return coalesce((
+    select jsonb_agg(row_to_json(t)) from (
+      select 
+        lt.id,
+        lt.donation_id,
+        d.tracking_code,
+        lt.point_id,
+        cp.name as point_name,
+        cp.public_address as point_address,
+        lt.kind,
+        lt.status,
+        lt.scheduled_at,
+        lt.notes,
+        lt.created_at,
+        case 
+          when lt.status in ('accepted', 'in_progress') then (
+            select jsonb_build_object('address', dc.address, 'contact_name', dc.contact_name, 'phone', dc.phone)
+            from private.donation_contacts dc where dc.donation_id = lt.donation_id
+          )
+          else null
+        end as contact_info
+      from public.logistics_tasks lt
+      join public.collection_points cp on cp.id = lt.point_id
+      left join public.donations d on d.id = lt.donation_id
+      where lt.assigned_to = auth.uid()
+        and (p_status is null or lt.status = p_status)
+      order by lt.created_at desc
+    ) t
+  ), '[]'::jsonb);
+end$$;
+
+-- 7. list_inventory
+create or replace function public.list_inventory(
+  p_point_id uuid,
+  p_category text default null,
+  p_size_code text default null
+) returns jsonb language plpgsql stable security invoker set search_path='' as $$
+begin
+  if not private.point_access(p_point_id) and not private.is_admin() then
+    raise exception 'FORBIDDEN' using errcode='P1002';
+  end if;
+  return coalesce((
+    select jsonb_agg(row_to_json(b)) from (
+      select 
+        ib.id,
+        ib.point_id,
+        ib.category,
+        ib.size_code,
+        ib.age_group,
+        ib.initial_qty,
+        ib.on_hand_qty,
+        ib.reserved_qty,
+        (ib.on_hand_qty - ib.reserved_qty) as available_qty,
+        ib.inspection_id
+      from public.inventory_batches ib
+      where ib.point_id = p_point_id
+        and (p_category is null or ib.category ilike p_category)
+        and (p_size_code is null or ib.size_code ilike p_size_code)
+      order by ib.category, ib.size_code
+    ) b
+  ), '[]'::jsonb);
+end$$;
+
+-- 8. get_my_impact
+create or replace function public.get_my_impact() returns jsonb language plpgsql stable security invoker set search_path='' as $$
+declare
+  v_uid uuid := auth.uid();
+  v_total_donated integer := 0;
+  v_received_good integer := 0;
+  v_recycling_count integer := 0;
+  v_destinations jsonb;
+begin
+  if v_uid is null then
+    raise exception 'AUTH_REQUIRED' using errcode='P1001';
+  end if;
+
+  select coalesce(sum(di.quantity), 0) into v_total_donated
+  from public.donations d
+  join public.donation_items di on di.donation_id = d.id
+  where d.donor_id = v_uid and d.status <> 'cancelled';
+
+  select coalesce(sum(si.received_good), 0) into v_received_good
+  from public.donations d
+  join public.donation_items di on di.donation_id = d.id
+  join public.inspections i on i.item_id = di.id
+  join public.inventory_batches b on b.inspection_id = i.id
+  join public.allocations a on a.batch_id = b.id
+  join public.shipment_items si on si.allocation_id = a.id
+  where d.donor_id = v_uid;
+
+  select coalesce(sum(rr.quantity), 0) into v_recycling_count
+  from public.donations d
+  join public.donation_items di on di.donation_id = d.id
+  join public.inspections i on i.item_id = di.id
+  join public.recycling_referrals rr on rr.inspection_id = i.id
+  where d.donor_id = v_uid;
+
+  select coalesce(jsonb_agg(distinct jsonb_build_object('partner_name', o.name, 'area', o.area, 'kind', o.kind)), '[]'::jsonb)
+  into v_destinations
+  from public.donations d
+  join public.donation_items di on di.donation_id = d.id
+  join public.inspections i on i.item_id = di.id
+  join public.inventory_batches b on b.inspection_id = i.id
+  join public.allocations a on a.batch_id = b.id
+  join public.need_items ni on ni.id = a.need_item_id
+  join public.needs n on n.id = ni.need_id
+  join public.organizations o on o.id = n.organization_id
+  where d.donor_id = v_uid;
+
+  return jsonb_build_object(
+    'total_donated_pieces', v_total_donated,
+    'received_good_pieces', v_received_good,
+    'recycling_referred_pieces', v_recycling_count,
+    'destination_partners', v_destinations
+  );
+end$$;
+
+-- 9. create_donation_draft
+create or replace function public.create_donation_draft(p_request_key uuid) returns jsonb language plpgsql security definer set search_path='' as $$
+declare
+  v_uid uuid := auth.uid();
+  v_id uuid;
+  v_tracking text;
+begin
+  if v_uid is null then
+    raise exception 'AUTH_REQUIRED' using errcode='P1001';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(v_uid::text || p_request_key::text, 0));
+
+  v_tracking := 'PK-' || upper(replace(gen_random_uuid()::text, '-', ''));
+  insert into public.donations(donor_id, tracking_code, status)
+  values (v_uid, v_tracking, 'draft')
+  returning id into v_id;
+
+  insert into private.audit_logs(actor_id, action, entity_id, details)
+  values (v_uid, 'create_donation_draft', v_id, jsonb_build_object('request_key', p_request_key));
+
+  return jsonb_build_object(
+    'donation_id', v_id,
+    'tracking_code', v_tracking,
+    'status', 'draft',
+    'request_key', p_request_key
+  );
+end$$;
+
+-- 10. save_donation_draft
+create or replace function public.save_donation_draft(
+  p_id uuid,
+  p_point_id uuid,
+  p_method text,
+  p_clean_check boolean,
+  p_intact_check boolean,
+  p_not_torn_check boolean,
+  p_preferred_need_id uuid default null,
+  p_items jsonb default '[]'::jsonb,
+  p_address text default null,
+  p_contact_name text default null,
+  p_phone text default null,
+  p_request_key uuid default null
+) returns void language plpgsql security definer set search_path='' as $$
+declare
+  v_uid uuid := auth.uid();
+  v_item jsonb;
+begin
+  if not private.owns_draft(p_id) then
+    raise exception 'FORBIDDEN' using errcode='P1002';
+  end if;
+
+  if p_method not in ('dropoff', 'pickup') then
+    raise exception 'VALIDATION_ERROR: Invalid handover method' using errcode='P1003';
+  end if;
+
+  update public.donations set
+    point_id = p_point_id,
+    method = p_method,
+    clean_check = coalesce(p_clean_check, false),
+    intact_check = coalesce(p_intact_check, false),
+    not_torn_check = coalesce(p_not_torn_check, false),
+    preferred_need_id = p_preferred_need_id
+  where id = p_id;
+
+  -- Replace items atomically
+  delete from public.donation_items where donation_id = p_id;
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    insert into public.donation_items(donation_id, category, size_code, age_group, quantity)
+    values (
+      p_id,
+      v_item->>'category',
+      v_item->>'size_code',
+      v_item->>'age_group',
+      (v_item->>'quantity')::integer
+    );
+  end loop;
+
+  -- Update contact if provided or pickup
+  if p_method = 'pickup' or p_address is not null then
+    insert into private.donation_contacts(donation_id, address, contact_name, phone)
+    values (p_id, p_address, p_contact_name, p_phone)
+    on conflict (donation_id) do update set
+      address = excluded.address,
+      contact_name = excluded.contact_name,
+      phone = excluded.phone;
+  end if;
+end$$;
+
+-- 11. register_donation_photo
+create or replace function public.register_donation_photo(
+  p_donation_id uuid,
+  p_storage_path text,
+  p_request_key uuid default null
+) returns uuid language plpgsql security definer set search_path='' as $$
+declare
+  v_id uuid;
+begin
+  if not private.owns_draft(p_donation_id) then
+    raise exception 'FORBIDDEN' using errcode='P1002';
+  end if;
+
+  if (select count(*) from public.donation_photos where donation_id = p_donation_id) >= 5 then
+    raise exception 'VALIDATION_ERROR: Maximum 5 photos allowed' using errcode='P1003';
+  end if;
+
+  insert into public.donation_photos(donation_id, storage_path)
+  values (p_donation_id, p_storage_path)
+  returning id into v_id;
+
+  return v_id;
+end$$;
+
+-- 12. review_donation
+create or replace function public.review_donation(
+  p_donation_id uuid,
+  p_decision text,
+  p_note text default null,
+  p_request_key uuid default null
+) returns void language plpgsql security definer set search_path='' as $$
+declare
+  d public.donations;
+begin
+  select * into d from public.donations where id = p_donation_id for update;
+  if not (private.is_admin() or private.point_access(d.point_id)) then
+    raise exception 'FORBIDDEN' using errcode='P1002';
+  end if;
+
+  if d.status <> 'submitted' then
+    raise exception 'INVALID_TRANSITION' using errcode='P1007';
+  end if;
+
+  if p_decision = 'approve' then
+    update public.donations set status = 'scheduled' where id = p_donation_id;
+    insert into public.donation_events(donation_id, event_type, summary, actor_id)
+    values (p_donation_id, 'scheduled', coalesce(p_note, 'Donasi disetujui untuk penyerahan / penjemputan'), auth.uid());
+  elsif p_decision = 'request_revision' then
+    update public.donations set status = 'needs_revision' where id = p_donation_id;
+    insert into public.donation_events(donation_id, event_type, summary, actor_id)
+    values (p_donation_id, 'needs_revision', coalesce(p_note, 'Memerlukan perbaikan data / foto'), auth.uid());
+  else
+    raise exception 'VALIDATION_ERROR: Invalid decision' using errcode='P1003';
+  end if;
+end$$;
+
+-- 13. save_need
+create or replace function public.save_need(
+  p_need_id uuid,
+  p_organization_id uuid,
+  p_point_id uuid,
+  p_title text,
+  p_description text,
+  p_deadline_at timestamptz,
+  p_incident_id uuid default null,
+  p_lines jsonb default '[]'::jsonb,
+  p_request_key uuid default null
+) returns uuid language plpgsql security definer set search_path='' as $$
+declare
+  v_id uuid := p_need_id;
+  v_item jsonb;
+begin
+  if not private.org_access(p_organization_id) then
+    raise exception 'FORBIDDEN' using errcode='P1002';
+  end if;
+
+  if v_id is null then
+    insert into public.needs(organization_id, point_id, incident_id, title, description, deadline_at, status)
+    values (p_organization_id, p_point_id, p_incident_id, p_title, p_description, p_deadline_at, 'draft')
+    returning id into v_id;
+  else
+    update public.needs set
+      point_id = p_point_id,
+      incident_id = p_incident_id,
+      title = p_title,
+      description = p_description,
+      deadline_at = p_deadline_at
+    where id = v_id and organization_id = p_organization_id;
+  end if;
+
+  -- Replace lines
+  delete from public.need_items where need_id = v_id;
+  for v_item in select * from jsonb_array_elements(p_lines) loop
+    insert into public.need_items(need_id, category, size_code, age_group, requested_qty)
+    values (
+      v_id,
+      v_item->>'category',
+      v_item->>'size_code',
+      v_item->>'age_group',
+      (v_item->>'requested_qty')::integer
+    );
+  end loop;
+
+  return v_id;
+end$$;
+
+-- 14. publish_need
+create or replace function public.publish_need(
+  p_need_id uuid,
+  p_request_key uuid default null
+) returns void language plpgsql security definer set search_path='' as $$
+declare
+  n public.needs;
+begin
+  select * into n from public.needs where id = p_need_id for update;
+  if not private.org_access(n.organization_id) then
+    raise exception 'FORBIDDEN' using errcode='P1002';
+  end if;
+
+  if n.status <> 'draft' and n.status <> 'paused' then
+    raise exception 'INVALID_TRANSITION' using errcode='P1007';
+  end if;
+
+  if n.deadline_at <= now() then
+    raise exception 'VALIDATION_ERROR: Deadline must be in the future' using errcode='P1003';
+  end if;
+
+  if not exists(select 1 from public.need_items where need_id = p_need_id) then
+    raise exception 'VALIDATION_ERROR: Need must have at least one item' using errcode='P1003';
+  end if;
+
+  update public.needs set status = 'open' where id = p_need_id;
+end$$;
+
+-- 15. change_need_status
+create or replace function public.change_need_status(
+  p_need_id uuid,
+  p_status text,
+  p_reason text default null,
+  p_request_key uuid default null
+) returns void language plpgsql security definer set search_path='' as $$
+declare
+  n public.needs;
+begin
+  select * into n from public.needs where id = p_need_id for update;
+  if not (private.is_admin() or private.org_access(n.organization_id)) then
+    raise exception 'FORBIDDEN' using errcode='P1002';
+  end if;
+
+  if p_status not in ('open', 'paused', 'closed') then
+    raise exception 'VALIDATION_ERROR: Invalid status' using errcode='P1003';
+  end if;
+
+  update public.needs set status = p_status where id = p_need_id;
+end$$;
+
+-- 16. request_role (volunteer)
+create or replace function public.request_role(
+  p_role public.app_role,
+  p_request_key uuid default null
+) returns void language plpgsql security definer set search_path='' as $$
+declare
+  v_uid uuid := auth.uid();
+begin
+  if v_uid is null then
+    raise exception 'AUTH_REQUIRED' using errcode='P1001';
+  end if;
+  if p_role = 'admin' then
+    raise exception 'FORBIDDEN: Cannot request admin role' using errcode='P1002';
+  end if;
+
+  insert into private.audit_logs(actor_id, action, entity_id, details)
+  values (v_uid, 'request_role', v_uid, jsonb_build_object('role', p_role, 'request_key', p_request_key));
+end$$;
+
+-- 17. request_organization
+create or replace function public.request_organization(
+  p_name text,
+  p_kind text,
+  p_area text,
+  p_request_key uuid default null
+) returns uuid language plpgsql security definer set search_path='' as $$
+declare
+  v_uid uuid := auth.uid();
+  v_org_id uuid;
+begin
+  if v_uid is null then
+    raise exception 'AUTH_REQUIRED' using errcode='P1001';
+  end if;
+
+  if p_kind not in ('social_institution', 'disaster_post', 'recycling_partner') then
+    raise exception 'VALIDATION_ERROR: Invalid organization kind' using errcode='P1003';
+  end if;
+
+  insert into public.organizations(name, kind, area, verified, active)
+  values (p_name, p_kind, p_area, false, true)
+  returning id into v_org_id;
+
+  insert into public.organization_members(organization_id, user_id, active)
+  values (v_org_id, v_uid, true);
+
+  insert into private.audit_logs(actor_id, action, entity_id, details)
+  values (v_uid, 'request_organization', v_org_id, jsonb_build_object('name', p_name, 'request_key', p_request_key));
+
+  return v_org_id;
+end$$;
+
+-- 18. approve_verification
+create or replace function public.approve_verification(
+  p_target_type text,
+  p_target_id uuid,
+  p_decision text,
+  p_reason text default null,
+  p_request_key uuid default null
+) returns void language plpgsql security definer set search_path='' as $$
+begin
+  if not private.is_admin() then
+    raise exception 'FORBIDDEN' using errcode='P1002';
+  end if;
+
+  if p_target_type = 'organization' then
+    if p_decision = 'approve' then
+      update public.organizations set verified = true where id = p_target_id;
+    else
+      update public.organizations set active = false where id = p_target_id;
+    end if;
+  elsif p_target_type = 'volunteer' then
+    if p_decision = 'approve' then
+      insert into public.user_roles(user_id, role, granted_by)
+      values (p_target_id, 'relawan', auth.uid())
+      on conflict do nothing;
+    end if;
+  else
+    raise exception 'VALIDATION_ERROR: Target type must be organization or volunteer' using errcode='P1003';
+  end if;
+
+  insert into private.audit_logs(actor_id, action, entity_id, details)
+  values (auth.uid(), 'approve_verification', p_target_id, jsonb_build_object('type', p_target_type, 'decision', p_decision, 'reason', p_reason));
+end$$;
+
+-- 19. assign_task
+create or replace function public.assign_task(
+  p_donation_id uuid,
+  p_point_id uuid,
+  p_volunteer_id uuid,
+  p_kind text,
+  p_scheduled_at timestamptz default null,
+  p_notes text default null,
+  p_request_key uuid default null
+) returns uuid language plpgsql security definer set search_path='' as $$
+declare
+  v_task_id uuid;
+begin
+  if not (private.is_admin() or private.point_access(p_point_id)) then
+    raise exception 'FORBIDDEN' using errcode='P1002';
+  end if;
+
+  if not exists(select 1 from public.user_roles where user_id = p_volunteer_id and role = 'relawan') then
+    raise exception 'VALIDATION_ERROR: Target is not a verified volunteer' using errcode='P1003';
+  end if;
+
+  insert into public.logistics_tasks(donation_id, point_id, assigned_to, kind, status, scheduled_at, notes)
+  values (p_donation_id, p_point_id, p_volunteer_id, p_kind, 'assigned', p_scheduled_at, p_notes)
+  returning id into v_task_id;
+
+  return v_task_id;
+end$$;
+
+-- 20. cancel_allocation
+create or replace function public.cancel_allocation(
+  p_allocation_id uuid,
+  p_reason text default null,
+  p_request_key uuid default null
+) returns void language plpgsql security definer set search_path='' as $$
+declare
+  a public.allocations;
+  b public.inventory_batches;
+begin
+  select * into a from public.allocations where id = p_allocation_id for update;
+  if not (private.is_admin() or a.created_by = auth.uid()) then
+    raise exception 'FORBIDDEN' using errcode='P1002';
+  end if;
+
+  if a.status <> 'reserved' then
+    raise exception 'INVALID_TRANSITION: Only reserved allocations can be cancelled' using errcode='P1007';
+  end if;
+
+  update public.inventory_batches
+  set reserved_qty = greatest(0, reserved_qty - a.quantity)
+  where id = a.batch_id;
+
+  update public.allocations set status = 'cancelled' where id = p_allocation_id;
+
+  insert into private.audit_logs(actor_id, action, entity_id, details)
+  values (auth.uid(), 'cancel_allocation', p_allocation_id, jsonb_build_object('reason', p_reason));
+end$$;
+
+-- 21. resolve_dispute
+create or replace function public.resolve_dispute(
+  p_dispute_id uuid,
+  p_accepted_late_qty integer,
+  p_released_need_qty integer,
+  p_reason text,
+  p_request_key uuid default null
+) returns void language plpgsql security definer set search_path='' as $$
+begin
+  if not private.is_admin() then
+    raise exception 'FORBIDDEN' using errcode='P1002';
+  end if;
+
+  insert into private.audit_logs(actor_id, action, entity_id, details)
+  values (auth.uid(), 'resolve_dispute', p_dispute_id, jsonb_build_object(
+    'accepted_late', p_accepted_late_qty,
+    'released_need', p_released_need_qty,
+    'reason', p_reason
+  ));
+end$$;
+
+-- 22. request_incident
+create or replace function public.request_incident(
+  p_org_id uuid,
+  p_title text,
+  p_area text,
+  p_starts_at timestamptz,
+  p_ends_at timestamptz,
+  p_request_key uuid default null
+) returns uuid language plpgsql security definer set search_path='' as $$
+declare
+  v_id uuid;
+begin
+  if not private.org_access(p_org_id) then
+    raise exception 'FORBIDDEN' using errcode='P1002';
+  end if;
+
+  if p_ends_at <= p_starts_at then
+    raise exception 'VALIDATION_ERROR: End time must be after start time' using errcode='P1003';
+  end if;
+
+  insert into public.incidents(organization_id, title, area, status, starts_at, ends_at)
+  values (p_org_id, p_title, p_area, 'requested', p_starts_at, p_ends_at)
+  returning id into v_id;
+
+  return v_id;
+end$$;
+
+-- 23. activate_incident
+create or replace function public.activate_incident(
+  p_incident_id uuid,
+  p_reason text default null,
+  p_request_key uuid default null
+) returns void language plpgsql security definer set search_path='' as $$
+begin
+  if not private.is_admin() then
+    raise exception 'FORBIDDEN' using errcode='P1002';
+  end if;
+
+  update public.incidents
+  set status = 'active', approved_by = auth.uid()
+  where id = p_incident_id;
+
+  insert into private.audit_logs(actor_id, action, entity_id, details)
+  values (auth.uid(), 'activate_incident', p_incident_id, jsonb_build_object('reason', p_reason));
+end$$;
+
+-- 24. close_incident
+create or replace function public.close_incident(
+  p_incident_id uuid,
+  p_reason text default null,
+  p_request_key uuid default null
+) returns void language plpgsql security definer set search_path='' as $$
+begin
+  if not private.is_admin() then
+    raise exception 'FORBIDDEN' using errcode='P1002';
+  end if;
+
+  update public.incidents set status = 'closed' where id = p_incident_id;
+
+  insert into private.audit_logs(actor_id, action, entity_id, details)
+  values (auth.uid(), 'close_incident', p_incident_id, jsonb_build_object('reason', p_reason));
+end$$;
+
+-- 25. update_recycling_referral
+create or replace function public.update_recycling_referral(
+  p_referral_id uuid,
+  p_partner_id uuid default null,
+  p_status text default null,
+  p_evidence text default null,
+  p_request_key uuid default null
+) returns void language plpgsql security definer set search_path='' as $$
+begin
+  if not (private.is_admin() or private.has_role('relawan')) then
+    raise exception 'FORBIDDEN' using errcode='P1002';
+  end if;
+
+  update public.recycling_referrals set
+    partner_id = coalesce(p_partner_id, partner_id),
+    status = coalesce(p_status, status),
+    evidence_path = coalesce(p_evidence, evidence_path)
+  where id = p_referral_id;
+end$$;
+
+-- Grant execute permissions to authenticated
+grant execute on function 
+  public.get_my_context(),
+  public.list_needs(text, text, text, text, boolean, integer, integer),
+  public.get_need_detail(uuid),
+  public.find_matches(text, text, text, integer),
+  public.list_points(text),
+  public.list_my_tasks(text),
+  public.list_inventory(uuid, text, text),
+  public.get_my_impact(),
+  public.create_donation_draft(uuid),
+  public.save_donation_draft(uuid, uuid, text, boolean, boolean, boolean, uuid, jsonb, text, text, text, uuid),
+  public.register_donation_photo(uuid, text, uuid),
+  public.review_donation(uuid, text, text, uuid),
+  public.save_need(uuid, uuid, uuid, text, text, timestamptz, uuid, jsonb, uuid),
+  public.publish_need(uuid, uuid),
+  public.change_need_status(uuid, text, text, uuid),
+  public.request_role(public.app_role, uuid),
+  public.request_organization(text, text, text, uuid),
+  public.approve_verification(text, uuid, text, text, uuid),
+  public.assign_task(uuid, uuid, uuid, text, timestamptz, text, uuid),
+  public.cancel_allocation(uuid, text, uuid),
+  public.resolve_dispute(uuid, integer, integer, text, uuid),
+  public.request_incident(uuid, text, text, timestamptz, timestamptz, uuid),
+  public.activate_incident(uuid, text, uuid),
+  public.close_incident(uuid, text, uuid),
+  public.update_recycling_referral(uuid, uuid, text, text, uuid)
+to authenticated;

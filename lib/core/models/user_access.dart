@@ -1,12 +1,18 @@
 import 'app_role.dart';
+import '../../features/auth/models/app_profile.dart';
+import '../../features/auth/models/organization_membership.dart';
 
 class UserAccess {
   final List<AppRole> roles;
   final AppUiShell ui;
+  final AppProfile? profile;
+  final List<OrganizationMembership> memberships;
 
   const UserAccess({
     required this.roles,
     required this.ui,
+    this.profile,
+    this.memberships = const [],
   });
 
   factory UserAccess.fromJson(Map<String, dynamic>? json) {
@@ -30,9 +36,28 @@ class UserAccess {
     final rawUi = json['ui'] as String?;
     final ui = AppUiShell.fromString(rawUi);
 
+    AppProfile? profile;
+    if (json['profile'] is Map) {
+      profile = AppProfile.fromMap(
+        Map<String, dynamic>.from(json['profile'] as Map),
+        defaultId: json['user_id']?.toString(),
+      );
+    }
+
+    final List<OrganizationMembership> memberships = [];
+    if (json['memberships'] is List) {
+      for (final m in json['memberships']) {
+        if (m is Map) {
+          memberships.add(OrganizationMembership.fromMap(Map<String, dynamic>.from(m)));
+        }
+      }
+    }
+
     return UserAccess(
       roles: List.unmodifiable(parsedRoles),
       ui: ui,
+      profile: profile,
+      memberships: List.unmodifiable(memberships),
     );
   }
 
@@ -44,5 +69,5 @@ class UserAccess {
   static const empty = UserAccess(roles: [], ui: AppUiShell.user);
 
   @override
-  String toString() => 'UserAccess(roles: $roles, ui: $ui)';
+  String toString() => 'UserAccess(roles: $roles, ui: $ui, profile: ${profile?.displayName})';
 }
