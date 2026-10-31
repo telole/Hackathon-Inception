@@ -1,4 +1,4 @@
-# reSandang — Backend Engine & Architecture
+# PakaianKita — Backend Engine & Architecture
 
 > Platform logistik donasi pakaian sandang berbasis kurasi fisik, transparansi kebutuhan, dan tanggap darurat bencana.
 
