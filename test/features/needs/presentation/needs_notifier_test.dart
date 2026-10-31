@@ -1,0 +1,57 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:resandang/features/needs/models/need.dart';
+import 'package:resandang/features/needs/presentation/needs_notifier.dart';
+import 'package:resandang/features/needs/services/needs_service.dart';
+
+class MockNeedsService extends Mock implements INeedsService {}
+
+void main() {
+  late MockNeedsService mockNeedsService;
+  late NeedsNotifier notifier;
+
+  setUp(() {
+    mockNeedsService = MockNeedsService();
+    notifier = NeedsNotifier(needsService: mockNeedsService);
+  });
+
+  group('NeedsNotifier', () {
+    test('initial state has empty needs and not loading', () {
+      expect(notifier.isLoading, isFalse);
+      expect(notifier.needs, isEmpty);
+      expect(notifier.errorMessage, isNull);
+    });
+
+    test('loadNeeds populates needs list on success', () async {
+      final fakeNeeds = [
+        Need(
+          id: 'n-1',
+          organizationId: 'o-1',
+          pointId: 'p-1',
+          title: 'Baju Anak Korban Banjir',
+          deadlineAt: DateTime.now().add(const Duration(days: 7)),
+          status: 'open',
+          createdAt: DateTime.now(),
+        )
+      ];
+
+      when(() => mockNeedsService.fetchOpenNeeds()).thenAnswer((_) async => fakeNeeds);
+
+      await notifier.loadNeeds();
+
+      expect(notifier.isLoading, isFalse);
+      expect(notifier.needs.length, 1);
+      expect(notifier.needs.first.title, 'Baju Anak Korban Banjir');
+      expect(notifier.errorMessage, isNull);
+    });
+
+    test('loadNeeds sets errorMessage on failure', () async {
+      when(() => mockNeedsService.fetchOpenNeeds()).thenThrow(Exception('Network error'));
+
+      await notifier.loadNeeds();
+
+      expect(notifier.isLoading, isFalse);
+      expect(notifier.errorMessage, contains('Network error'));
+    });
+  });
+}

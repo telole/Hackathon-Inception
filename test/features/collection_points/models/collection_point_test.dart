@@ -1,0 +1,31 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:resandang/features/collection_points/models/collection_point.dart';
+
+void main() {
+  group('CollectionPoint model', () {
+    test('parses CollectionPoint from json correctly', () {
+      final json = {
+        'id': 'pt-1',
+        'organization_id': 'org-1',
+        'name': 'Posko Titik Kumpul Peduli',
+        'public_address': 'Jl. Diponegoro No. 10',
+        'latitude': -6.2088,
+        'longitude': 106.8456,
+        'opening_hours': '08:00 - 17:00 WIB',
+        'capacity_pieces': 500,
+        'active': true,
+      };
+
+      final point = CollectionPoint.fromJson(json);
+
+      expect(point.id, 'pt-1');
+      expect(point.organizationId, 'org-1');
+      expect(point.name, 'Posko Titik Kumpul Peduli');
+      expect(point.publicAddress, 'Jl. Diponegoro No. 10');
+      expect(point.latitude, -6.2088);
+      expect(point.longitude, 106.8456);
+      expect(point.capacityPieces, 500);
+      expect(point.active, isTrue);
+    });
+  });
+}
