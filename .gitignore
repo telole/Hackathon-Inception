@@ -46,3 +46,11 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Secrets (jangan di-commit)
+env.json
+.env
+*.env
+
+# Supabase CLI local cache (never part of migrations).
+supabase/.temp/
