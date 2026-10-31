@@ -17,108 +17,157 @@ class WelcomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return PkScaffold(
-      child: CustomScrollView(
-        slivers: [
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-            sliver: SliverFillRemaining(
-              hasScrollBody: false,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Top Bar with Brand & Demo badge
+              Row(
                 children: [
-                  Row(
-                    children: [
-                      const PkLogo(size: 18),
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 7,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.parchment,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          'DEMO',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            fontSize: 9.5,
-                            color: const Color(0xFF6B5526),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 22),
-                  const ShirtIllustration(height: 238),
-                  const SizedBox(height: 26),
                   Text(
-                    'PAKAIAN LAYAK PAKAI',
-                    style: theme.textTheme.labelSmall?.copyWith(
+                    'PAKAIANKITA',
+                    style: theme.textTheme.labelMedium?.copyWith(
                       color: AppColors.forest,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Pakaianmu masih\npunya cerita.',
-                    style: theme.textTheme.displayMedium,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Temukan kebutuhan nyata di sekitarmu. Salurkan pakaian layak pakai lewat mitra yang sudah diverifikasi admin.',
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: AppColors.muted,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 2.0,
                     ),
                   ),
                   const Spacer(),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.verified_outlined,
-                        size: 15,
-                        color: AppColors.forest,
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.parchment,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: AppColors.line),
+                    ),
+                    child: Text(
+                      'DEMO',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.muted,
+                        letterSpacing: 0.8,
                       ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          'Setiap mitra melewati verifikasi legalitas.',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  PkButton(
-                    label: 'Mulai',
-                    onPressed: onStart,
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        'Sudah punya akun?',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                      TextButton(
-                        onPressed: onSignIn,
-                        child: const Text('Masuk'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Mode simulasi · tidak terhubung ke server',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodySmall?.copyWith(fontSize: 11),
+                    ),
                   ),
                 ],
               ),
-            ),
+              const SizedBox(height: 36),
+
+              // Headline (Modern Neo-Grotesque Sans-Serif)
+              Text(
+                'Salurkan pakaian,\npulihkan martabat',
+                style: theme.textTheme.displayMedium?.copyWith(
+                  fontSize: 34,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.8,
+                  height: 1.15,
+                  color: AppColors.ink,
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Subtitle
+              Text(
+                'Gotong royong sandang layak pakai untuk saudara kita yang membutuhkan, langsung melalui jaringan lembaga kemanusiaan terverifikasi.',
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  fontSize: 16,
+                  height: 1.55,
+                  color: AppColors.muted,
+                ),
+              ),
+              const SizedBox(height: 28),
+
+              // Trust indicator
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.sage.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.forest.withValues(alpha: 0.15)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.verified_rounded,
+                      size: 18,
+                      color: AppColors.forest,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Setiap mitra melewati verifikasi legalitas resmi.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.forest,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const Spacer(),
+
+              // Primary CTA
+              PkButton(
+                label: 'Mulai',
+                height: 56,
+                onPressed: onStart,
+              ),
+              const SizedBox(height: 14),
+
+              // Secondary action (Text Link)
+              Center(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Sudah punya akun? ',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: AppColors.muted,
+                        fontSize: 14.5,
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: onSignIn,
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: Text(
+                        'Masuk',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: AppColors.forest,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14.5,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Disclaimer
+              Text(
+                'Mode simulasi · tidak terhubung ke server',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontSize: 11,
+                  color: AppColors.textMuted,
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

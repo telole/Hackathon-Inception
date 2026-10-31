@@ -119,14 +119,14 @@ class GoogleSignInButton extends StatelessWidget {
       label: 'Lanjut dengan Google, simulasi',
       child: Material(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(14),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: busy ? null : onPressed,
           child: Container(
-            height: 52,
+            height: 54,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(14),
               border: Border.all(color: AppColors.line, width: 1.2),
             ),
             padding: const EdgeInsets.symmetric(horizontal: 14),

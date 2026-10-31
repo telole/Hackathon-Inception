@@ -337,7 +337,7 @@ class PkButton extends StatelessWidget {
     this.busy = false,
     this.icon,
     this.expand = true,
-    this.height = 52,
+    this.height = 54,
   });
 
   final String label;
@@ -382,7 +382,7 @@ class PkButton extends StatelessWidget {
       label: label,
       child: Material(
         color: effectiveBackground,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(14),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: _enabled ? onPressed : null,
@@ -391,7 +391,7 @@ class PkButton extends StatelessWidget {
             width: expand ? double.infinity : null,
             padding: const EdgeInsets.symmetric(horizontal: 18),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(14),
               border: variant == PkButtonVariant.secondary
                   ? Border.all(color: AppColors.line)
                   : null,
@@ -640,7 +640,7 @@ class PkCard extends StatelessWidget {
     this.onTap,
     this.color,
     this.borderColor,
-    this.radius = 12,
+    this.radius = 14,
   });
 
   final Widget child;

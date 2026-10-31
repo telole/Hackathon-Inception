@@ -68,8 +68,8 @@ class DonaturHomeScreen extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                 decoration: BoxDecoration(
                   color: AppColors.parchment,
-                  borderRadius: BorderRadius.circular(5),
-                  border: Border.all(color: const Color(0xFFE7DDC8)),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: AppColors.line),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -77,14 +77,14 @@ class DonaturHomeScreen extends StatelessWidget {
                     const Icon(
                       Icons.science_outlined,
                       size: 13,
-                      color: Color(0xFF6B5526),
+                      color: AppColors.muted,
                     ),
                     const SizedBox(width: 5),
                     Text(
                       'DATA SIMULASI',
                       style: theme.textTheme.labelSmall?.copyWith(
                         fontSize: 9.5,
-                        color: const Color(0xFF6B5526),
+                        color: AppColors.muted,
                       ),
                     ),
                   ],
