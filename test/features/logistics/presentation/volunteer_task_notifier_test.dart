@@ -1,0 +1,225 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:resandang/features/donation/models/donation.dart';
+import 'package:resandang/features/logistics/models/inspection.dart';
+import 'package:resandang/features/logistics/models/logistics_task.dart';
+import 'package:resandang/features/logistics/presentation/volunteer_task_notifier.dart';
+import 'package:resandang/features/logistics/services/logistics_service.dart';
+
+class MockLogisticsService extends Mock implements ILogisticsService {}
+
+void main() {
+  late MockLogisticsService mockService;
+  late VolunteerTaskNotifier notifier;
+
+  final sampleTask = LogisticsTask(
+    id: 'task-1',
+    donationId: 'donation-1',
+    pointId: 'point-1',
+    kind: 'curation',
+    status: 'assigned',
+    createdAt: DateTime.parse('2026-10-31T09:00:00Z'),
+  );
+
+  final sampleActiveTask = LogisticsTask(
+    id: 'task-2',
+    donationId: 'donation-2',
+    pointId: 'point-1',
+    kind: 'curation',
+    status: 'accepted',
+    createdAt: DateTime.parse('2026-10-31T10:00:00Z'),
+  );
+
+  final sampleItem = const DonationItem(
+    id: 'item-1',
+    donationId: 'donation-2',
+    category: 'kaos',
+    sizeCode: 'L',
+    ageGroup: 'dewasa',
+    quantity: 10,
+  );
+
+  final sampleInspection = Inspection(
+    id: 'insp-1',
+    itemId: 'item-1',
+    pointId: 'point-1',
+    inspectorId: 'vol-1',
+    passedQty: 8,
+    rejectedQty: 2,
+    rejectionReason: 'Sobek',
+    createdAt: DateTime.parse('2026-10-31T11:00:00Z'),
+  );
+
+  setUp(() {
+    mockService = MockLogisticsService();
+    notifier = VolunteerTaskNotifier(logisticsService: mockService);
+  });
+
+  group('VolunteerTaskNotifier', () {
+    test('initial state has empty tasks and not loading', () {
+      expect(notifier.activeTasks, isEmpty);
+      expect(notifier.completedTasks, isEmpty);
+      expect(notifier.selectedTask, isNull);
+      expect(notifier.curationItems, isEmpty);
+      expect(notifier.inspections, isEmpty);
+      expect(notifier.donorContact, isNull);
+      expect(notifier.isLoading, isFalse);
+      expect(notifier.errorMessage, isNull);
+    });
+
+    test('loadTasks populates active and completed tasks on success', () async {
+      when(() => mockService.fetchMyTasks(
+            statuses: ['assigned', 'accepted', 'in_progress'],
+          )).thenAnswer((_) async => [sampleTask]);
+      when(() => mockService.fetchMyTasks(
+            statuses: ['completed', 'declined', 'cancelled', 'failed'],
+          )).thenAnswer((_) async => []);
+
+      await notifier.loadTasks();
+
+      expect(notifier.activeTasks.length, 1);
+      expect(notifier.activeTasks.first.id, 'task-1');
+      expect(notifier.completedTasks, isEmpty);
+      expect(notifier.isLoading, isFalse);
+      expect(notifier.errorMessage, isNull);
+    });
+
+    test('loadTasks sets errorMessage on failure', () async {
+      when(() => mockService.fetchMyTasks(
+            statuses: any(named: 'statuses'),
+          )).thenThrow(Exception('Failed to load tasks'));
+
+      await notifier.loadTasks();
+
+      expect(notifier.activeTasks, isEmpty);
+      expect(notifier.errorMessage, contains('Failed to load tasks'));
+      expect(notifier.isLoading, isFalse);
+    });
+
+    test('selectTask loads items, inspections and contact when active', () async {
+      when(() => mockService.fetchDonationItemsForCuration('donation-2'))
+          .thenAnswer((_) async => [sampleItem]);
+      when(() => mockService.fetchInspectionsForDonation('donation-2'))
+          .thenAnswer((_) async => [sampleInspection]);
+      when(() => mockService.getDonationContact('donation-2')).thenAnswer(
+          (_) async => {'contact_name': 'Pak Budi', 'phone': '08123456'});
+
+      await notifier.selectTask(sampleActiveTask);
+
+      expect(notifier.selectedTask?.id, 'task-2');
+      expect(notifier.curationItems.length, 1);
+      expect(notifier.curationItems.first.id, 'item-1');
+      expect(notifier.inspections.containsKey('item-1'), isTrue);
+      expect(notifier.inspections['item-1']?.passedQty, 8);
+      expect(notifier.donorContact?['contact_name'], 'Pak Budi');
+    });
+
+    test('acceptTask calls respondTask with accepted and reloads', () async {
+      when(() => mockService.respondTask(
+            taskId: 'task-1',
+            status: 'accepted',
+          )).thenAnswer((_) async {});
+      when(() => mockService.fetchMyTasks(
+            statuses: any(named: 'statuses'),
+          )).thenAnswer((_) async => []);
+
+      final success = await notifier.acceptTask('task-1');
+
+      expect(success, isTrue);
+      verify(() => mockService.respondTask(
+            taskId: 'task-1',
+            status: 'accepted',
+          )).called(1);
+    });
+
+    test('startTask calls respondTask with in_progress and reloads', () async {
+      when(() => mockService.respondTask(
+            taskId: 'task-1',
+            status: 'in_progress',
+          )).thenAnswer((_) async {});
+      when(() => mockService.fetchMyTasks(
+            statuses: any(named: 'statuses'),
+          )).thenAnswer((_) async => []);
+
+      final success = await notifier.startTask('task-1');
+
+      expect(success, isTrue);
+      verify(() => mockService.respondTask(
+            taskId: 'task-1',
+            status: 'in_progress',
+          )).called(1);
+    });
+
+    test('completeTask calls respondTask with completed and reloads', () async {
+      when(() => mockService.respondTask(
+            taskId: 'task-1',
+            status: 'completed',
+          )).thenAnswer((_) async {});
+      when(() => mockService.fetchMyTasks(
+            statuses: any(named: 'statuses'),
+          )).thenAnswer((_) async => []);
+
+      final success = await notifier.completeTask('task-1');
+
+      expect(success, isTrue);
+      verify(() => mockService.respondTask(
+            taskId: 'task-1',
+            status: 'completed',
+          )).called(1);
+    });
+
+    test('declineTask calls respondTask with declined and reloads', () async {
+      when(() => mockService.respondTask(
+            taskId: 'task-1',
+            status: 'declined',
+          )).thenAnswer((_) async {});
+      when(() => mockService.fetchMyTasks(
+            statuses: any(named: 'statuses'),
+          )).thenAnswer((_) async => []);
+
+      final success = await notifier.declineTask('task-1');
+
+      expect(success, isTrue);
+      verify(() => mockService.respondTask(
+            taskId: 'task-1',
+            status: 'declined',
+          )).called(1);
+    });
+
+    test('recordCuration calls recordInspection and refreshes inspections',
+        () async {
+      when(() => mockService.recordInspection(
+            itemId: 'item-1',
+            passedQty: 8,
+            rejectedQty: 2,
+            reason: 'Noda membandel',
+          )).thenAnswer((_) async => 'batch-uuid-999');
+
+      when(() => mockService.fetchDonationItemsForCuration('donation-2'))
+          .thenAnswer((_) async => [sampleItem]);
+      when(() => mockService.fetchInspectionsForDonation('donation-2'))
+          .thenAnswer((_) async => [sampleInspection]);
+      when(() => mockService.getDonationContact('donation-2'))
+          .thenAnswer((_) async => null);
+
+      // Select active curation task first
+      await notifier.selectTask(sampleActiveTask);
+
+      final batchId = await notifier.recordCuration(
+        itemId: 'item-1',
+        passedQty: 8,
+        rejectedQty: 2,
+        reason: 'Noda membandel',
+      );
+
+      expect(batchId, 'batch-uuid-999');
+      verify(() => mockService.recordInspection(
+            itemId: 'item-1',
+            passedQty: 8,
+            rejectedQty: 2,
+            reason: 'Noda membandel',
+          )).called(1);
+      expect(notifier.inspections.containsKey('item-1'), isTrue);
+    });
+  });
+}

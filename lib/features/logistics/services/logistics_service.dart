@@ -1,4 +1,8 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../donation/models/donation.dart';
+import '../models/inspection.dart';
+import '../models/inventory_batch.dart';
+import '../models/logistics_task.dart';
 
 abstract class ILogisticsService {
   Future<void> respondTask({
@@ -32,6 +36,14 @@ abstract class ILogisticsService {
     required int rejectedQty,
     required int missingQty,
   });
+  Future<Map<String, dynamic>?> getDonationContact(String donationId);
+  Future<List<LogisticsTask>> fetchMyTasks({
+    List<String>? statuses,
+    String? kind,
+  });
+  Future<List<DonationItem>> fetchDonationItemsForCuration(String donationId);
+  Future<List<Inspection>> fetchInspectionsForDonation(String donationId);
+  Future<List<InventoryBatch>> fetchInventoryBatches({String? pointId});
 }
 
 class LogisticsService implements ILogisticsService {
@@ -145,5 +157,86 @@ class LogisticsService implements ILogisticsService {
         'p_missing': missingQty,
       },
     );
+  }
+
+  @override
+  Future<Map<String, dynamic>?> getDonationContact(String donationId) async {
+    final result = await _client.rpc(
+      'get_donation_contact',
+      params: {'p_id': donationId},
+    );
+    if (result == null) return null;
+    return Map<String, dynamic>.from(result as Map);
+  }
+
+  @override
+  Future<List<LogisticsTask>> fetchMyTasks({
+    List<String>? statuses,
+    String? kind,
+  }) async {
+    var query = _client.from('logistics_tasks').select(
+      'id, donation_id, point_id, assigned_to, kind, status, scheduled_at, notes, created_at, '
+      'collection_points(name), donations(tracking_code)',
+    );
+
+    if (statuses != null && statuses.isNotEmpty) {
+      query = query.filter('status', 'in', statuses);
+    }
+    if (kind != null) {
+      query = query.eq('kind', kind);
+    }
+
+    final res = await query.order('created_at', ascending: false);
+    final tasks = <LogisticsTask>[];
+    for (final item in res) {
+      tasks.add(LogisticsTask.fromJson(item));
+    }
+    return tasks;
+  }
+
+  @override
+  Future<List<DonationItem>> fetchDonationItemsForCuration(
+      String donationId) async {
+    final res = await _client
+        .from('donation_items')
+        .select()
+        .eq('donation_id', donationId);
+
+    final items = <DonationItem>[];
+    for (final item in res) {
+      items.add(DonationItem.fromJson(item));
+    }
+    return items;
+  }
+
+  @override
+  Future<List<Inspection>> fetchInspectionsForDonation(
+      String donationId) async {
+    final res = await _client
+        .from('inspections')
+        .select('id, item_id, point_id, inspector_id, passed_qty, rejected_qty, rejection_reason, created_at, donation_items!inner(donation_id)')
+        .eq('donation_items.donation_id', donationId);
+
+    final inspections = <Inspection>[];
+    for (final item in res) {
+      inspections.add(Inspection.fromJson(item));
+    }
+    return inspections;
+  }
+
+  @override
+  Future<List<InventoryBatch>> fetchInventoryBatches(
+      {String? pointId}) async {
+    var query = _client.from('inventory_batches').select();
+    if (pointId != null) {
+      query = query.eq('point_id', pointId);
+    }
+    final res = await query.order('created_at', ascending: false);
+
+    final batches = <InventoryBatch>[];
+    for (final item in res) {
+      batches.add(InventoryBatch.fromJson(item));
+    }
+    return batches;
   }
 }

@@ -6,6 +6,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 class MockSupabaseClient extends Mock implements SupabaseClient {}
 
+class MockSupabaseQueryBuilder extends Mock implements SupabaseQueryBuilder {}
+
 class FakePostgrestFilterBuilder<T> extends Fake
     implements PostgrestFilterBuilder<T> {
   final Future<T> _future;
@@ -26,6 +28,38 @@ class FakePostgrestFilterBuilder<T> extends Fake
   Future<T> whenComplete(FutureOr<void> Function() action) {
     return _future.whenComplete(action);
   }
+
+  @override
+  PostgrestFilterBuilder<T> eq(String column, Object value) => this;
+
+  @override
+  PostgrestFilterBuilder<T> filter(
+          String column, String operator, Object? value) =>
+      this;
+
+  @override
+  PostgrestFilterBuilder<T> order(String column,
+          {bool ascending = false,
+          bool nullsFirst = false,
+          String? referencedTable}) =>
+      this;
+
+  @override
+  PostgrestTransformBuilder<List<Map<String, dynamic>>> select(
+          [String columns = '*']) =>
+      FakePostgrestTransformBuilder<List<Map<String, dynamic>>>(_future as dynamic);
+}
+
+class FakePostgrestTransformBuilder<T> extends Fake
+    implements PostgrestTransformBuilder<T> {
+  final Future<T> _future;
+  FakePostgrestTransformBuilder(this._future);
+
+  @override
+  Future<R> then<R>(FutureOr<R> Function(T value) onValue,
+      {Function? onError}) {
+    return _future.then(onValue, onError: onError);
+  }
 }
 
 void main() {
@@ -37,7 +71,7 @@ void main() {
     logisticsService = LogisticsService(client: mockSupabase);
   });
 
-  group('LogisticsService', () {
+  group('LogisticsService RPCs', () {
     test('respondTask calls respond_task RPC with correct params', () async {
       const taskId = 'task-uuid-1';
       final builder = FakePostgrestFilterBuilder<dynamic>(Future.value(null));
@@ -58,10 +92,12 @@ void main() {
       ).called(1);
     });
 
-    test('recordInspection calls record_inspection RPC and returns batchId', () async {
+    test('recordInspection calls record_inspection RPC and returns batchId',
+        () async {
       const itemId = 'item-uuid-1';
       const createdBatchId = 'batch-uuid-1';
-      final builder = FakePostgrestFilterBuilder<dynamic>(Future.value(createdBatchId));
+      final builder =
+          FakePostgrestFilterBuilder<dynamic>(Future.value(createdBatchId));
       when(
         () => mockSupabase.rpc(
           'record_inspection',
@@ -95,12 +131,14 @@ void main() {
       ).called(1);
     });
 
-    test('reserveAllocation calls reserve_allocation RPC with idempotency key', () async {
+    test('reserveAllocation calls reserve_allocation RPC with idempotency key',
+        () async {
       const batchId = 'batch-1';
       const needItemId = 'need-item-1';
       const requestKey = 'key-uuid-1';
       const allocationId = 'alloc-uuid-1';
-      final builder = FakePostgrestFilterBuilder<dynamic>(Future.value(allocationId));
+      final builder =
+          FakePostgrestFilterBuilder<dynamic>(Future.value(allocationId));
       when(
         () => mockSupabase.rpc(
           'reserve_allocation',
@@ -167,6 +205,129 @@ void main() {
           },
         ),
       ).called(1);
+    });
+
+    test('getDonationContact calls get_donation_contact RPC and returns map',
+        () async {
+      const donationId = 'donation-1';
+      final contactData = {
+        'contact_name': 'Budi Santoso',
+        'phone': '08123456789',
+        'address': 'Jl. Melati No. 10',
+      };
+      final builder =
+          FakePostgrestFilterBuilder<dynamic>(Future.value(contactData));
+      when(
+        () => mockSupabase.rpc(
+          'get_donation_contact',
+          params: {'p_id': donationId},
+        ),
+      ).thenAnswer((_) => builder);
+
+      final result = await logisticsService.getDonationContact(donationId);
+
+      expect(result?['contact_name'], 'Budi Santoso');
+      expect(result?['phone'], '08123456789');
+    });
+  });
+
+  group('LogisticsService Queries', () {
+    test('fetchMyTasks queries logistics_tasks with filters and returns list',
+        () async {
+      final mockQuery = MockSupabaseQueryBuilder();
+      when(() => mockSupabase.from('logistics_tasks')).thenAnswer((_) => mockQuery);
+
+      final tasksData = [
+        {
+          'id': 'task-1',
+          'donation_id': 'donation-1',
+          'point_id': 'point-1',
+          'assigned_to': 'user-1',
+          'kind': 'curation',
+          'status': 'assigned',
+          'created_at': '2026-10-31T09:00:00.000Z',
+          'collection_points': {'name': 'Posko Jakarta'},
+          'donations': {'tracking_code': 'PK-12345'},
+        }
+      ];
+
+      final builder = FakePostgrestFilterBuilder<List<Map<String, dynamic>>>(
+        Future.value(tasksData),
+      );
+      when(() => mockQuery.select(any())).thenAnswer((_) => builder);
+
+      final tasks = await logisticsService.fetchMyTasks(
+        statuses: ['assigned', 'accepted'],
+        kind: 'curation',
+      );
+
+      expect(tasks.length, 1);
+      expect(tasks.first.id, 'task-1');
+      expect(tasks.first.pointName, 'Posko Jakarta');
+      expect(tasks.first.donationTrackingCode, 'PK-12345');
+    });
+
+    test('fetchDonationItemsForCuration returns donation items for donation',
+        () async {
+      final mockQuery = MockSupabaseQueryBuilder();
+      when(() => mockSupabase.from('donation_items')).thenAnswer((_) => mockQuery);
+
+      final itemsData = [
+        {
+          'id': 'item-1',
+          'donation_id': 'donation-1',
+          'category': 'kaos',
+          'size_code': 'L',
+          'age_group': 'dewasa',
+          'quantity': 10,
+        }
+      ];
+
+      final builder = FakePostgrestFilterBuilder<List<Map<String, dynamic>>>(
+        Future.value(itemsData),
+      );
+      when(() => mockQuery.select()).thenAnswer((_) => builder);
+
+      final items =
+          await logisticsService.fetchDonationItemsForCuration('donation-1');
+
+      expect(items.length, 1);
+      expect(items.first.id, 'item-1');
+      expect(items.first.category, 'kaos');
+      expect(items.first.quantity, 10);
+    });
+
+    test('fetchInventoryBatches returns batches for given point', () async {
+      final mockQuery = MockSupabaseQueryBuilder();
+      when(() => mockSupabase.from('inventory_batches'))
+          .thenAnswer((_) => mockQuery);
+
+      final batchData = [
+        {
+          'id': 'batch-1',
+          'inspection_id': 'insp-1',
+          'point_id': 'point-1',
+          'category': 'celana',
+          'size_code': 'M',
+          'age_group': 'dewasa',
+          'initial_qty': 5,
+          'on_hand_qty': 5,
+          'reserved_qty': 0,
+        }
+      ];
+
+      final builder = FakePostgrestFilterBuilder<List<Map<String, dynamic>>>(
+        Future.value(batchData),
+      );
+      when(() => mockQuery.select()).thenAnswer((_) => builder);
+
+      final batches =
+          await logisticsService.fetchInventoryBatches(pointId: 'point-1');
+
+      expect(batches.length, 1);
+      expect(batches.first.id, 'batch-1');
+      expect(batches.first.category, 'celana');
+      expect(batches.first.availableQty, 5);
     });
   });
 }
