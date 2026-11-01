@@ -1,0 +1,210 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:pakaiankita/features/disaster/models/emergency_stock_match.dart';
+import 'package:pakaiankita/features/disaster/models/incident.dart';
+import 'package:pakaiankita/features/disaster/presentation/disaster_notifier.dart';
+import 'package:pakaiankita/features/disaster/services/disaster_service.dart';
+import 'package:pakaiankita/features/needs/models/need.dart';
+
+class MockDisasterService extends Mock implements IDisasterService {}
+
+void main() {
+  late MockDisasterService mockService;
+  late DisasterNotifier notifier;
+
+  final sampleIncident = Incident(
+    id: 'inc-1',
+    organizationId: 'org-1',
+    title: 'Banjir Demak',
+    area: 'Jawa Tengah',
+    status: 'active',
+    startsAt: DateTime.parse('2026-10-31T00:00:00Z'),
+    endsAt: DateTime.parse('2026-11-15T00:00:00Z'),
+    approvedBy: 'admin-1',
+  );
+
+  final sampleEmergencyNeed = Need(
+    id: 'need-em-1',
+    organizationId: 'org-1',
+    pointId: 'point-1',
+    incidentId: 'inc-1',
+    title: 'Kebutuhan Pakaian Hangat Pengungsi',
+    deadlineAt: DateTime.parse('2026-11-05T00:00:00Z'),
+    status: 'open',
+    createdAt: DateTime.parse('2026-10-31T08:00:00Z'),
+    items: const [
+      NeedItem(
+        id: 'ni-1',
+        needId: 'need-em-1',
+        category: 'jaket',
+        sizeCode: 'L',
+        ageGroup: 'dewasa',
+        requestedQty: 20,
+      )
+    ],
+  );
+
+  final sampleMatch = const EmergencyStockMatch(
+    batchId: 'batch-1',
+    pointId: 'pt-1',
+    pointName: 'Posko Kudus',
+    category: 'jaket',
+    sizeCode: 'L',
+    ageGroup: 'dewasa',
+    requestedQty: 20,
+    availableQty: 25,
+    matchedQty: 20,
+  );
+
+  setUp(() {
+    mockService = MockDisasterService();
+    notifier = DisasterNotifier(disasterService: mockService);
+  });
+
+  group('DisasterNotifier', () {
+    test('initial state has empty lists and is not in disaster mode', () {
+      expect(notifier.activeIncidents, isEmpty);
+      expect(notifier.allIncidents, isEmpty);
+      expect(notifier.selectedIncident, isNull);
+      expect(notifier.emergencyNeeds, isEmpty);
+      expect(notifier.stockMatches, isEmpty);
+      expect(notifier.isDisasterMode, isFalse);
+      expect(notifier.isLoading, isFalse);
+      expect(notifier.errorMessage, isNull);
+    });
+
+    test('loadIncidents sets isDisasterMode and loads needs when active exists',
+        () async {
+      when(() => mockService.fetchActiveIncidents())
+          .thenAnswer((_) async => [sampleIncident]);
+      when(() => mockService.fetchAllIncidents())
+          .thenAnswer((_) async => [sampleIncident]);
+      when(() => mockService.fetchEmergencyNeeds(incidentId: 'inc-1'))
+          .thenAnswer((_) async => [sampleEmergencyNeed]);
+
+      await notifier.loadIncidents();
+
+      expect(notifier.activeIncidents.length, 1);
+      expect(notifier.isDisasterMode, isTrue);
+      expect(notifier.selectedIncident?.id, 'inc-1');
+      expect(notifier.emergencyNeeds.length, 1);
+      expect(notifier.emergencyNeeds.first.id, 'need-em-1');
+      expect(notifier.isLoading, isFalse);
+    });
+
+    test('selectIncident updates selected incident and reloads needs',
+        () async {
+      when(() => mockService.fetchEmergencyNeeds(incidentId: 'inc-1'))
+          .thenAnswer((_) async => [sampleEmergencyNeed]);
+
+      await notifier.selectIncident(sampleIncident);
+
+      expect(notifier.selectedIncident?.id, 'inc-1');
+      expect(notifier.isDisasterMode, isTrue);
+      expect(notifier.emergencyNeeds.length, 1);
+    });
+
+    test('loadIncidents disables isDisasterMode and resets matches when active is empty', () async {
+      when(() => mockService.fetchActiveIncidents()).thenAnswer((_) async => []);
+      when(() => mockService.fetchAllIncidents()).thenAnswer((_) async => []);
+
+      await notifier.loadIncidents();
+
+      expect(notifier.activeIncidents, isEmpty);
+      expect(notifier.isDisasterMode, isFalse);
+      expect(notifier.selectedIncident, isNull);
+      expect(notifier.emergencyNeeds, isEmpty);
+      expect(notifier.stockMatches, isEmpty);
+    });
+
+    test('selectIncident(null) turns off disaster mode and clears matches', () async {
+      when(() => mockService.fetchEmergencyNeeds(incidentId: 'inc-1'))
+          .thenAnswer((_) async => [sampleEmergencyNeed]);
+
+      await notifier.selectIncident(sampleIncident);
+      expect(notifier.isDisasterMode, isTrue);
+
+      await notifier.selectIncident(null);
+      expect(notifier.selectedIncident, isNull);
+      expect(notifier.isDisasterMode, isFalse);
+      expect(notifier.emergencyNeeds, isEmpty);
+      expect(notifier.stockMatches, isEmpty);
+    });
+
+    test('findMatchesForNeedItem queries and stores stock matches', () async {
+      when(() => mockService.findPreCuratedStockForEmergency(
+            category: 'jaket',
+            sizeCode: 'L',
+            ageGroup: 'dewasa',
+            requestedQty: 20,
+          )).thenAnswer((_) async => [sampleMatch]);
+
+      await notifier.findMatchesForNeedItem(
+        category: 'jaket',
+        sizeCode: 'L',
+        ageGroup: 'dewasa',
+        requestedQty: 20,
+      );
+
+      expect(notifier.stockMatches.length, 1);
+      expect(notifier.stockMatches.first.batchId, 'batch-1');
+      expect(notifier.stockMatches.first.pointName, 'Posko Kudus');
+      expect(notifier.isLoading, isFalse);
+    });
+
+    test('declareEmergency calls requestDisasterDeclaration and reloads',
+        () async {
+      when(() => mockService.requestDisasterDeclaration(
+            organizationId: 'org-1',
+            title: 'Banjir Baru',
+            area: 'Demak',
+            startsAt: any(named: 'startsAt'),
+            endsAt: any(named: 'endsAt'),
+          )).thenAnswer((_) async => 'inc-new-id');
+
+      when(() => mockService.fetchActiveIncidents()).thenAnswer((_) async => []);
+      when(() => mockService.fetchAllIncidents()).thenAnswer((_) async => []);
+
+      final id = await notifier.declareEmergency(
+        organizationId: 'org-1',
+        title: 'Banjir Baru',
+        area: 'Demak',
+        startsAt: DateTime.parse('2026-10-31T00:00:00Z'),
+        endsAt: DateTime.parse('2026-11-05T00:00:00Z'),
+      );
+
+      expect(id, 'inc-new-id');
+    });
+
+    test('approveDisaster calls approve and reloads incidents', () async {
+      when(() => mockService.approveDisaster(incidentId: 'inc-1'))
+          .thenAnswer((_) async {});
+      when(() => mockService.fetchActiveIncidents()).thenAnswer((_) async => []);
+      when(() => mockService.fetchAllIncidents()).thenAnswer((_) async => []);
+
+      final success = await notifier.approveDisaster('inc-1');
+
+      expect(success, isTrue);
+      verify(() => mockService.approveDisaster(incidentId: 'inc-1')).called(1);
+    });
+
+    test('closeDisaster calls close and reloads incidents', () async {
+      when(() => mockService.closeDisaster(incidentId: 'inc-1'))
+          .thenAnswer((_) async {});
+      when(() => mockService.fetchActiveIncidents()).thenAnswer((_) async => []);
+      when(() => mockService.fetchAllIncidents()).thenAnswer((_) async => []);
+
+      final success = await notifier.closeDisaster('inc-1');
+
+      expect(success, isTrue);
+      verify(() => mockService.closeDisaster(incidentId: 'inc-1')).called(1);
+    });
+
+    test('setDisasterMode toggles state flag', () {
+      notifier.setDisasterMode(true);
+      expect(notifier.isDisasterMode, isTrue);
+      notifier.setDisasterMode(false);
+      expect(notifier.isDisasterMode, isFalse);
+    });
+  });
+}

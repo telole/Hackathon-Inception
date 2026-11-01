@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:resandang/features/logistics/models/inspection.dart';
-import 'package:resandang/features/logistics/models/inventory_batch.dart';
-import 'package:resandang/features/logistics/models/logistics_task.dart';
+import 'package:pakaiankita/features/logistics/models/inspection.dart';
+import 'package:pakaiankita/features/logistics/models/inventory_batch.dart';
+import 'package:pakaiankita/features/logistics/models/logistics_task.dart';
 
 void main() {
   group('Logistics Models', () {

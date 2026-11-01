@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:resandang/core/models/app_role.dart';
-import 'package:resandang/core/models/user_access.dart';
+import 'package:pakaiankita/core/models/app_role.dart';
+import 'package:pakaiankita/core/models/user_access.dart';
 
 void main() {
   group('UserAccess', () {

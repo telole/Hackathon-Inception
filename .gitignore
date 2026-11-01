@@ -54,3 +54,7 @@ env.json
 
 # Supabase CLI local cache (never part of migrations).
 supabase/.temp/
+
+# Local build/runtime artifacts
+/android/.kotlin/
+**/__pycache__/

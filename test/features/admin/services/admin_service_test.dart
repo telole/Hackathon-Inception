@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
-import 'package:resandang/core/models/app_role.dart';
-import 'package:resandang/features/admin/services/admin_service.dart';
+import 'package:pakaiankita/core/models/app_role.dart';
+import 'package:pakaiankita/features/admin/services/admin_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class MockSupabaseClient extends Mock implements SupabaseClient {}

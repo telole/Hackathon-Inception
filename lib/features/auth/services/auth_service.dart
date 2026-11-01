@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../../core/errors/error_mapper.dart';
 import '../../../core/models/app_role.dart';
 import '../../../core/models/user_access.dart';
@@ -38,7 +39,7 @@ class AuthService implements IAuthService {
   final SupabaseClient _client;
 
   AuthService({SupabaseClient? client})
-      : _client = client ?? Supabase.instance.client;
+    : _client = client ?? Supabase.instance.client;
 
   @override
   User? get currentUser => _client.auth.currentUser;
@@ -105,39 +106,23 @@ class AuthService implements IAuthService {
       return UserAccess.empty;
     }
 
-    try {
-      // Prioritaskan RPC get_my_context yang mengembalikan context lengkap (api-contracts.md)
-      final res = await _client.rpc('get_my_context');
-      if (res is Map<String, dynamic>) {
-        return UserAccess.fromJson(res);
-      } else if (res is Map) {
-        return UserAccess.fromJson(Map<String, dynamic>.from(res));
-      }
-      return UserAccess.empty;
-    } catch (_) {
-      // Fallback ke my_access jika get_my_context belum terpasang
-      try {
-        final res = await _client.rpc('my_access');
-        if (res is Map<String, dynamic>) {
-          return UserAccess.fromJson(res);
-        } else if (res is Map) {
-          return UserAccess.fromJson(Map<String, dynamic>.from(res));
-        }
-        return UserAccess.empty;
-      } catch (_) {
-        return UserAccess.empty;
-      }
+    // Match the installed backend contract and let connection/permission errors
+    // reach the caller instead of treating them as an empty permission set.
+    final result = await _client.rpc('my_access');
+    if (result is Map) {
+      return UserAccess.fromJson(Map<String, dynamic>.from(result));
     }
+    throw StateError('Invalid access context returned by the server.');
   }
 
   @override
   Future<void> requestRole(AppRole role) async {
     try {
       final key = SupabaseClientProvider.newRequestKey();
-      await _client.rpc('request_role', params: {
-        'p_role': role.name,
-        'p_request_key': key,
-      });
+      await _client.rpc(
+        'request_role',
+        params: {'p_role': role.name, 'p_request_key': key},
+      );
     } catch (e, s) {
       throw ErrorMapper.map(e, s);
     }
@@ -151,12 +136,15 @@ class AuthService implements IAuthService {
   }) async {
     try {
       final key = SupabaseClientProvider.newRequestKey();
-      final res = await _client.rpc('request_organization', params: {
-        'p_name': name,
-        'p_kind': kind,
-        'p_area': area,
-        'p_request_key': key,
-      });
+      final res = await _client.rpc(
+        'request_organization',
+        params: {
+          'p_name': name,
+          'p_kind': kind,
+          'p_area': area,
+          'p_request_key': key,
+        },
+      );
       return res.toString();
     } catch (e, s) {
       throw ErrorMapper.map(e, s);

@@ -5,11 +5,7 @@ sealed class AppFailure implements Exception {
   final String message;
   final dynamic details;
 
-  const AppFailure({
-    required this.code,
-    required this.message,
-    this.details,
-  });
+  const AppFailure({required this.code, required this.message, this.details});
 
   @override
   String toString() => '[$code] $message';
@@ -18,95 +14,98 @@ sealed class AppFailure implements Exception {
 /// P1001 - Sesi tidak ada atau telah berakhir
 class AuthRequiredFailure extends AppFailure {
   const AuthRequiredFailure({
-    String message = 'Sesi Anda telah berakhir. Silakan masuk kembali.',
-    dynamic details,
-  }) : super(code: 'AUTH_REQUIRED', message: message, details: details);
+    super.message = 'Sesi Anda telah berakhir. Silakan masuk kembali.',
+    super.details,
+  }) : super(code: 'AUTH_REQUIRED');
 }
 
 /// P1002 - Peran atau hubungan objek tidak sah
 class ForbiddenFailure extends AppFailure {
   const ForbiddenFailure({
-    String message = 'Anda tidak memiliki hak akses untuk tindakan ini.',
-    dynamic details,
-  }) : super(code: 'FORBIDDEN', message: message, details: details);
+    super.message = 'Anda tidak memiliki hak akses untuk tindakan ini.',
+    super.details,
+  }) : super(code: 'FORBIDDEN');
 }
 
 /// P1003 - Field atau persamaan kuantitas salah
 class ValidationErrorFailure extends AppFailure {
   const ValidationErrorFailure({
-    String message = 'Data yang dikirimkan tidak valid atau belum lengkap.',
-    dynamic details,
-  }) : super(code: 'VALIDATION_ERROR', message: message, details: details);
+    super.message = 'Data yang dikirimkan tidak valid atau belum lengkap.',
+    super.details,
+  }) : super(code: 'VALIDATION_ERROR');
 }
 
 /// P1004 - Objek berubah sejak terakhir dibuka
 class VersionConflictFailure extends AppFailure {
   const VersionConflictFailure({
-    String message = 'Data telah diperbarui di server. Silakan muat ulang halaman.',
-    dynamic details,
-  }) : super(code: 'VERSION_CONFLICT', message: message, details: details);
+    super.message =
+        'Data telah diperbarui di server. Silakan muat ulang halaman.',
+    super.details,
+  }) : super(code: 'VERSION_CONFLICT');
 }
 
 /// P1005 - Kuantitas yang diminta melebihi stok tersedia
 class StockConflictFailure extends AppFailure {
   const StockConflictFailure({
-    String message = 'Stok tersedia tidak mencukupi untuk alokasi ini.',
-    dynamic details,
-  }) : super(code: 'STOCK_CONFLICT', message: message, details: details);
+    super.message = 'Stok tersedia tidak mencukupi untuk alokasi ini.',
+    super.details,
+  }) : super(code: 'STOCK_CONFLICT');
 }
 
 /// P1006 - Kebutuhan telah ditutup, terpenuhi, atau melewati tenggat
 class NeedClosedFailure extends AppFailure {
   const NeedClosedFailure({
-    String message = 'Kebutuhan ini telah ditutup atau melewati batas waktu.',
-    dynamic details,
-  }) : super(code: 'NEED_CLOSED', message: message, details: details);
+    super.message = 'Kebutuhan ini telah ditutup atau melewati batas waktu.',
+    super.details,
+  }) : super(code: 'NEED_CLOSED');
 }
 
 /// P1007 - Status saat ini tidak menerima tindakan yang dipilih
 class InvalidTransitionFailure extends AppFailure {
   const InvalidTransitionFailure({
-    String message = 'Perubahan status tidak sah untuk kondisi donasi saat ini.',
-    dynamic details,
-  }) : super(code: 'INVALID_TRANSITION', message: message, details: details);
+    super.message = 'Perubahan status tidak sah untuk kondisi donasi saat ini.',
+    super.details,
+  }) : super(code: 'INVALID_TRANSITION');
 }
 
 /// P1008 - Idempotency key lama digunakan dengan muatan payload berbeda
 class IdempotencyConflictFailure extends AppFailure {
   const IdempotencyConflictFailure({
-    String message = 'Konflik kunci idempotensi: permintaan serupa telah diproses sebelumnya.',
-    dynamic details,
-  }) : super(code: 'IDEMPOTENCY_CONFLICT', message: message, details: details);
+    super.message = 'Konflik kunci idempotensi: permintaan serupa telah diproses sebelumnya.',
+    super.details,
+  }) : super(code: 'IDEMPOTENCY_CONFLICT');
 }
 
 /// P1009 - Konfirmasi penerimaan atau serah terima sudah final
 class AlreadyConfirmedFailure extends AppFailure {
   const AlreadyConfirmedFailure({
-    String message = 'Konfirmasi penerimaan donasi sudah final dan tidak dapat diubah.',
-    dynamic details,
-  }) : super(code: 'ALREADY_CONFIRMED', message: message, details: details);
+    super.message =
+        'Konfirmasi penerimaan donasi sudah final dan tidak dapat diubah.',
+    super.details,
+  }) : super(code: 'ALREADY_CONFIRMED');
 }
 
 /// AI Provider gagal / tidak mendukung (Edge HTTP 503)
 class AiUnavailableFailure extends AppFailure {
   const AiUnavailableFailure({
-    String message = 'Layanan bantuan AI sedang tidak tersedia. Silakan lanjutkan kurasi secara manual.',
-    dynamic details,
-  }) : super(code: 'AI_UNAVAILABLE', message: message, details: details);
+    super.message = 'Layanan bantuan AI sedang tidak tersedia. Silakan lanjutkan kurasi secara manual.',
+    super.details,
+  }) : super(code: 'AI_UNAVAILABLE');
 }
 
 /// Gangguan jaringan atau timeout
 class NetworkFailure extends AppFailure {
   const NetworkFailure({
-    String message = 'Koneksi internet bermasalah. Periksa sambungan Anda dan coba lagi.',
-    dynamic details,
-  }) : super(code: 'NETWORK_ERROR', message: message, details: details);
+    super.message =
+        'Koneksi internet bermasalah. Periksa sambungan Anda dan coba lagi.',
+    super.details,
+  }) : super(code: 'NETWORK_ERROR');
 }
 
 /// Kesalahan tak terduga
 class UnknownFailure extends AppFailure {
   const UnknownFailure({
-    String message = 'Terjadi kesalahan sistem yang tidak terduga.',
-    dynamic details,
-  }) : super(code: 'UNKNOWN_ERROR', message: message, details: details);
+    super.message = 'Terjadi kesalahan sistem yang tidak terduga.',
+    super.details,
+  }) : super(code: 'UNKNOWN_ERROR');
 }

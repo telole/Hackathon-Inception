@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:resandang/features/logistics/models/allocation.dart';
-import 'package:resandang/features/logistics/models/shipment.dart';
+import 'package:pakaiankita/features/logistics/models/allocation.dart';
+import 'package:pakaiankita/features/logistics/models/shipment.dart';
 
 void main() {
   group('Allocation & Shipment Models', () {
